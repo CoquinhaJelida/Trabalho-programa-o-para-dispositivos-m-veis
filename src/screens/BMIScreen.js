@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { View, Text, TextInput, TouchableOpacity, StyleSheet, Keyboard } from 'react-native';
+import { View, Text, TextInput, TouchableOpacity, StyleSheet, Keyboard, ScrollView } from 'react-native';
 
 export default function BMIScreen() {
   const [weight, setWeight] = useState('');
@@ -7,12 +7,11 @@ export default function BMIScreen() {
   const [bmi, setBmi] = useState(null);
 
   const calculateBMI = () => {
-    // Validação atualizada com !isNaN
     if (weight && height && !isNaN(weight) && !isNaN(height)) {
       const heightInMeters = parseFloat(height) / 100;
       const bmiValue = parseFloat(weight) / (heightInMeters * heightInMeters);
       setBmi(bmiValue.toFixed(1));
-      Keyboard.dismiss(); // Fecha teclado
+      Keyboard.dismiss();
     }
   };
 
@@ -24,7 +23,7 @@ export default function BMIScreen() {
   };
 
   return (
-    <View style={styles.container}>
+    <ScrollView contentContainerStyle={styles.scrollContainer} keyboardShouldPersistTaps="handled">
       <View style={styles.card}>
         <Text style={styles.cardTitle}>Calculadora de IMC</Text>
         
@@ -49,7 +48,7 @@ export default function BMIScreen() {
             placeholder="Ex: 175"
             keyboardType="numeric"
             returnKeyType="done"
-            onSubmitEditing={calculateBMI} // Enter calcula automaticamente
+            onSubmitEditing={calculateBMI}
           />
         </View>
 
@@ -71,12 +70,12 @@ export default function BMIScreen() {
           </View>
         )}
       </View>
-    </View>
+    </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { padding: 24 },
+  scrollContainer: { padding: 24, flexGrow: 1 },
   card: { backgroundColor: '#fff', borderRadius: 16, padding: 24, elevation: 3 },
   cardTitle: { fontSize: 20, fontWeight: 'bold', color: '#1f2937', marginBottom: 16 },
   formGroup: { marginBottom: 16 },
