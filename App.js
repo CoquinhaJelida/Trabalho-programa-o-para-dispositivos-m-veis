@@ -5,14 +5,14 @@ import {
 import { LinearGradient } from 'expo-linear-gradient';
 import { Feather } from '@expo/vector-icons';
 
-// Importação das Telas
 import Header from './src/components/Header';
 import MealsScreen from './src/screens/MealsScreen';
-import BMIScreen from './src/screens/BMIScreen';
 import WaterScreen from './src/screens/WaterScreen';
+import ProfileScreen from './src/screens/ProfileScreen'; // Nova tela
 
 export default function App() {
-  const [currentTab, setCurrentTab] = useState('meals');
+  // Define 'profile' como a tela inicial (padrão ao abrir)
+  const [currentTab, setCurrentTab] = useState('profile');
 
   return (
     <SafeAreaView style={styles.container}>
@@ -33,8 +33,19 @@ export default function App() {
         <View style={{ flex: 1 }}>
           <Header />
 
-          {/* --- MENU AGORA ESTÁ AQUI (TOPO) --- */}
+          {/* MENU SUPERIOR: Perfil é o primeiro */}
           <View style={styles.tabContainer}>
+            
+            <TouchableOpacity
+              onPress={() => setCurrentTab('profile')}
+              style={[styles.tabButton, currentTab === 'profile' ? styles.activeTabGreen : styles.inactiveTab]}
+            >
+              <Feather name="user" size={20} color={currentTab === 'profile' ? '#fff' : '#4b5563'} />
+              <Text style={[styles.tabText, currentTab === 'profile' ? { color: '#fff' } : { color: '#4b5563' }]}>
+                Perfil
+              </Text>
+            </TouchableOpacity>
+
             <TouchableOpacity
               onPress={() => setCurrentTab('meals')}
               style={[styles.tabButton, currentTab === 'meals' ? styles.activeTabGreen : styles.inactiveTab]}
@@ -55,22 +66,13 @@ export default function App() {
               </Text>
             </TouchableOpacity>
 
-            <TouchableOpacity
-              onPress={() => setCurrentTab('bmi')}
-              style={[styles.tabButton, currentTab === 'bmi' ? styles.activeTabGreen : styles.inactiveTab]}
-            >
-              <Feather name="activity" size={20} color={currentTab === 'bmi' ? '#fff' : '#4b5563'} />
-              <Text style={[styles.tabText, currentTab === 'bmi' ? { color: '#fff' } : { color: '#4b5563' }]}>
-                IMC
-              </Text>
-            </TouchableOpacity>
           </View>
 
-          {/* --- CONTEÚDO AGORA ESTÁ AQUI (BAIXO) --- */}
+          {/* CONTEÚDO */}
           <View style={{ flex: 1 }}>
+            {currentTab === 'profile' && <ProfileScreen />}
             {currentTab === 'meals' && <MealsScreen />}
             {currentTab === 'water' && <WaterScreen />}
-            {currentTab === 'bmi' && <BMIScreen />}
           </View>
 
         </View>
@@ -83,16 +85,15 @@ const styles = StyleSheet.create({
   container: { flex: 1 },
   background: { position: 'absolute', left: 0, right: 0, top: 0, height: '100%' },
   
-  // Ajustei o estilo para ficar bonito no topo
   tabContainer: { 
     flexDirection: 'row', 
     backgroundColor: '#fff', 
-    elevation: 4, // Sombra para baixo
-    shadowColor: '#000', // Sombra no iOS
+    elevation: 4, 
+    shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
     shadowRadius: 2,
-    borderBottomWidth: 1, // Linha divisória embaixo
+    borderBottomWidth: 1, 
     borderBottomColor: '#f0f0f0' 
   },
   
@@ -101,7 +102,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row', 
     alignItems: 'center', 
     justifyContent: 'center', 
-    paddingVertical: 12 // Diminuí um pouco a altura para ficar mais elegante no topo
+    paddingVertical: 12 
   },
   
   activeTabGreen: { backgroundColor: '#16a34a' },
