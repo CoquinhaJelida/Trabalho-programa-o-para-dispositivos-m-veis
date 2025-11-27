@@ -9,20 +9,18 @@ import { Feather } from '@expo/vector-icons';
 import Header from './src/components/Header';
 import MealsScreen from './src/screens/MealsScreen';
 import BMIScreen from './src/screens/BMIScreen';
-import WaterScreen from './src/screens/WaterScreen'; // <--- Importante!
+import WaterScreen from './src/screens/WaterScreen';
 
 export default function App() {
   const [currentTab, setCurrentTab] = useState('meals');
 
   return (
     <SafeAreaView style={styles.container}>
-      {/* Muda a cor da barra de status dependendo da aba (Verde para Nutrição/IMC, Azul para Água) */}
       <StatusBar 
         barStyle="light-content" 
         backgroundColor={currentTab === 'water' ? '#2563eb' : '#16a34a'} 
       />
       
-      {/* Fundo Gradiente muda de cor se for Água */}
       <LinearGradient
         colors={currentTab === 'water' ? ['#eff6ff', '#dbeafe'] : ['#f0fdf4', '#eff6ff']}
         style={styles.background}
@@ -35,14 +33,7 @@ export default function App() {
         <View style={{ flex: 1 }}>
           <Header />
 
-          {/* Área de Conteúdo */}
-          <View style={{ flex: 1 }}>
-            {currentTab === 'meals' && <MealsScreen />}
-            {currentTab === 'water' && <WaterScreen />}
-            {currentTab === 'bmi' && <BMIScreen />}
-          </View>
-
-          {/* Navegação Inferior */}
+          {/* --- MENU AGORA ESTÁ AQUI (TOPO) --- */}
           <View style={styles.tabContainer}>
             <TouchableOpacity
               onPress={() => setCurrentTab('meals')}
@@ -74,6 +65,14 @@ export default function App() {
               </Text>
             </TouchableOpacity>
           </View>
+
+          {/* --- CONTEÚDO AGORA ESTÁ AQUI (BAIXO) --- */}
+          <View style={{ flex: 1 }}>
+            {currentTab === 'meals' && <MealsScreen />}
+            {currentTab === 'water' && <WaterScreen />}
+            {currentTab === 'bmi' && <BMIScreen />}
+          </View>
+
         </View>
       </KeyboardAvoidingView>
     </SafeAreaView>
@@ -84,24 +83,29 @@ const styles = StyleSheet.create({
   container: { flex: 1 },
   background: { position: 'absolute', left: 0, right: 0, top: 0, height: '100%' },
   
+  // Ajustei o estilo para ficar bonito no topo
   tabContainer: { 
     flexDirection: 'row', 
     backgroundColor: '#fff', 
-    elevation: 10, 
-    borderTopWidth: 1, 
-    borderTopColor: '#f0f0f0' 
+    elevation: 4, // Sombra para baixo
+    shadowColor: '#000', // Sombra no iOS
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
+    borderBottomWidth: 1, // Linha divisória embaixo
+    borderBottomColor: '#f0f0f0' 
   },
+  
   tabButton: { 
     flex: 1, 
     flexDirection: 'row', 
     alignItems: 'center', 
     justifyContent: 'center', 
-    paddingVertical: 16 
+    paddingVertical: 12 // Diminuí um pouco a altura para ficar mais elegante no topo
   },
   
-  // Estilos de Aba Ativa/Inativa
-  activeTabGreen: { backgroundColor: '#16a34a' }, // Verde para Comida/IMC
-  activeTabBlue: { backgroundColor: '#2563eb' },  // Azul para Água
+  activeTabGreen: { backgroundColor: '#16a34a' },
+  activeTabBlue: { backgroundColor: '#2563eb' },
   inactiveTab: { backgroundColor: '#fff' },
   
   tabText: { fontWeight: '600', marginLeft: 8 },
