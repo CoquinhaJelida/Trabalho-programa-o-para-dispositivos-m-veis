@@ -5,67 +5,60 @@ import {
 import { LinearGradient } from 'expo-linear-gradient';
 import { Feather } from '@expo/vector-icons';
 
+// Importação das Telas
 import Header from './src/components/Header';
 import MealsScreen from './src/screens/MealsScreen';
 import WaterScreen from './src/screens/WaterScreen';
-import ProfileScreen from './src/screens/ProfileScreen'; // Nova tela
+import ProfileScreen from './src/screens/ProfileScreen';
+import GalleryScreen from './src/screens/GalleryScreen'; // <--- Nova Importação
 
 export default function App() {
-  // Define 'profile' como a tela inicial (padrão ao abrir)
   const [currentTab, setCurrentTab] = useState('profile');
+
+  // Lógica para mudar a cor do tema baseado na aba
+  const getThemeColor = () => {
+    if (currentTab === 'water') return ['#eff6ff', '#dbeafe']; // Azul
+    if (currentTab === 'gallery') return ['#f5f3ff', '#ede9fe']; // Roxo
+    return ['#f0fdf4', '#eff6ff']; // Verde (Padrão)
+  };
+
+  const getStatusBarColor = () => {
+    if (currentTab === 'water') return '#2563eb';
+    if (currentTab === 'gallery') return '#7c3aed';
+    return '#16a34a';
+  };
 
   return (
     <SafeAreaView style={styles.container}>
-      <StatusBar 
-        barStyle="light-content" 
-        backgroundColor={currentTab === 'water' ? '#2563eb' : '#16a34a'} 
-      />
+      <StatusBar barStyle="light-content" backgroundColor={getStatusBarColor()} />
       
-      <LinearGradient
-        colors={currentTab === 'water' ? ['#eff6ff', '#dbeafe'] : ['#f0fdf4', '#eff6ff']}
-        style={styles.background}
-      />
+      <LinearGradient colors={getThemeColor()} style={styles.background} />
 
-      <KeyboardAvoidingView 
-        behavior={Platform.OS === "ios" ? "padding" : "height"}
-        style={{ flex: 1 }}
-      >
+      <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={{ flex: 1 }}>
         <View style={{ flex: 1 }}>
           <Header />
 
-          {/* MENU SUPERIOR: Perfil é o primeiro */}
+          {/* MENU SUPERIOR (Scrollável para caber tudo) */}
           <View style={styles.tabContainer}>
-            
-            <TouchableOpacity
-              onPress={() => setCurrentTab('profile')}
-              style={[styles.tabButton, currentTab === 'profile' ? styles.activeTabGreen : styles.inactiveTab]}
-            >
-              <Feather name="user" size={20} color={currentTab === 'profile' ? '#fff' : '#4b5563'} />
-              <Text style={[styles.tabText, currentTab === 'profile' ? { color: '#fff' } : { color: '#4b5563' }]}>
-                Perfil
-              </Text>
+            <TouchableOpacity onPress={() => setCurrentTab('profile')} style={[styles.tabButton, currentTab === 'profile' && styles.activeTabGreen]}>
+              <Feather name="user" size={18} color={currentTab === 'profile' ? '#fff' : '#4b5563'} />
+              <Text style={[styles.tabText, currentTab === 'profile' && { color: '#fff' }]}>Perfil</Text>
             </TouchableOpacity>
 
-            <TouchableOpacity
-              onPress={() => setCurrentTab('meals')}
-              style={[styles.tabButton, currentTab === 'meals' ? styles.activeTabGreen : styles.inactiveTab]}
-            >
-              <Feather name="coffee" size={20} color={currentTab === 'meals' ? '#fff' : '#4b5563'} />
-              <Text style={[styles.tabText, currentTab === 'meals' ? { color: '#fff' } : { color: '#4b5563' }]}>
-                Refeições
-              </Text>
+            <TouchableOpacity onPress={() => setCurrentTab('meals')} style={[styles.tabButton, currentTab === 'meals' && styles.activeTabGreen]}>
+              <Feather name="coffee" size={18} color={currentTab === 'meals' ? '#fff' : '#4b5563'} />
+              <Text style={[styles.tabText, currentTab === 'meals' && { color: '#fff' }]}>Refeições</Text>
             </TouchableOpacity>
 
-            <TouchableOpacity
-              onPress={() => setCurrentTab('water')}
-              style={[styles.tabButton, currentTab === 'water' ? styles.activeTabBlue : styles.inactiveTab]}
-            >
-              <Feather name="droplet" size={20} color={currentTab === 'water' ? '#fff' : '#4b5563'} />
-              <Text style={[styles.tabText, currentTab === 'water' ? { color: '#fff' } : { color: '#4b5563' }]}>
-                Água
-              </Text>
+            <TouchableOpacity onPress={() => setCurrentTab('water')} style={[styles.tabButton, currentTab === 'water' && styles.activeTabBlue]}>
+              <Feather name="droplet" size={18} color={currentTab === 'water' ? '#fff' : '#4b5563'} />
+              <Text style={[styles.tabText, currentTab === 'water' && { color: '#fff' }]}>Água</Text>
             </TouchableOpacity>
 
+            <TouchableOpacity onPress={() => setCurrentTab('gallery')} style={[styles.tabButton, currentTab === 'gallery' && styles.activeTabPurple]}>
+              <Feather name="camera" size={18} color={currentTab === 'gallery' ? '#fff' : '#4b5563'} />
+              <Text style={[styles.tabText, currentTab === 'gallery' && { color: '#fff' }]}>Evolução</Text>
+            </TouchableOpacity>
           </View>
 
           {/* CONTEÚDO */}
@@ -73,6 +66,7 @@ export default function App() {
             {currentTab === 'profile' && <ProfileScreen />}
             {currentTab === 'meals' && <MealsScreen />}
             {currentTab === 'water' && <WaterScreen />}
+            {currentTab === 'gallery' && <GalleryScreen />}
           </View>
 
         </View>
@@ -89,25 +83,13 @@ const styles = StyleSheet.create({
     flexDirection: 'row', 
     backgroundColor: '#fff', 
     elevation: 4, 
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 2,
-    borderBottomWidth: 1, 
-    borderBottomColor: '#f0f0f0' 
+    shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.1, shadowRadius: 2,
+    borderBottomWidth: 1, borderBottomColor: '#f0f0f0' 
   },
-  
-  tabButton: { 
-    flex: 1, 
-    flexDirection: 'row', 
-    alignItems: 'center', 
-    justifyContent: 'center', 
-    paddingVertical: 12 
-  },
+  tabButton: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingVertical: 12 },
+  tabText: { fontWeight: '600', marginLeft: 4, fontSize: 12, color: '#4b5563' },
   
   activeTabGreen: { backgroundColor: '#16a34a' },
   activeTabBlue: { backgroundColor: '#2563eb' },
-  inactiveTab: { backgroundColor: '#fff' },
-  
-  tabText: { fontWeight: '600', marginLeft: 8 },
+  activeTabPurple: { backgroundColor: '#7c3aed' },
 });

@@ -3,6 +3,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 const CUSTOM_FOODS_KEY = '@my_custom_foods';
 const PROFILE_KEY = '@user_profile';
 const HISTORY_KEY = '@daily_logs';
+const PHOTOS_KEY = '@body_progress_photos';
 
 // --- AJUDANTE DE DATA ---
 export const getTodayKey = () => new Date().toISOString().split('T')[0];
@@ -91,4 +92,53 @@ export const getProfile = async (onSuccess) => {
     const profile = json ? JSON.parse(json) : null;
     if (onSuccess) onSuccess(profile);
   } catch (e) { console.error(e); }
+};
+
+// ==========================================
+// FUNÇÕES DE GALERIA (FOTOS)
+// ==========================================
+
+export const savePhotoLog = async (date, photoUri) => {
+  try {
+    const json = await AsyncStorage.getItem(PHOTOS_KEY);
+    const gallery = json ? JSON.parse(json) : {};
+
+    // Se já tem fotos nesse dia, adiciona na lista, senão cria uma nova lista
+    const dayPhotos = gallery[date] || [];
+    gallery[date] = [...dayPhotos, photoUri];
+
+    await AsyncStorage.setItem(PHOTOS_KEY, JSON.stringify(gallery));
+  } catch (e) {
+    console.error("Erro ao salvar foto:", e);
+  }
+};
+
+export const getGallery = async (onSuccess) => {
+  try {
+    const json = await AsyncStorage.getItem(PHOTOS_KEY);
+    const gallery = json ? JSON.parse(json) : {};
+    if (onSuccess) onSuccess(gallery);
+    return gallery;
+  } catch (e) {
+    console.error("Erro ao ler galeria:", e);
+    return {};
+  }
+};
+
+export const deletePhoto = async (date, photoUri, onSuccess) => {
+  try {
+    const json = await AsyncStorage.getItem(PHOTOS_KEY);
+    let gallery = json ? JSON.parse(json) : {};
+    
+    if (gallery[date]) {
+      gallery[date] = gallery[date].filter(uri => uri !== photoUri);
+      // Se não sobrou foto no dia, deleta a chave do dia
+      if (gallery[date].length === 0) delete gallery[date];
+      
+      await AsyncStorage.setItem(PHOTOS_KEY, JSON.stringify(gallery));
+      if (onSuccess) onSuccess(gallery);
+    }
+  } catch (e) {
+    console.error(e);
+  }
 };
