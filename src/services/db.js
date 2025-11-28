@@ -3,27 +3,38 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 // CHAVES DE ARMAZENAMENTO
 const CUSTOM_FOODS_KEY = '@my_custom_foods';
 const PROFILE_KEY = '@user_profile';
-const HISTORY_KEY = '@daily_logs'; // Onde salvamos o histórico de kcal/água
+const HISTORY_KEY = '@daily_logs';
 const PHOTOS_KEY = '@body_progress_photos';
 
-// Pega data de hoje (YYYY-MM-DD)
-export const getTodayKey = () => new Date().toISOString().split('T')[0];
+// ==========================================
+// CORREÇÃO DO RELÓGIO (DATA LOCAL)
+// ==========================================
+export const getTodayKey = () => {
+  const now = new Date(); // Pega a data/hora exata do celular
+  const year = now.getFullYear();
+  // O mês começa em 0 (janeiro), então somamos +1
+  const month = String(now.getMonth() + 1).padStart(2, '0');
+  const day = String(now.getDate()).padStart(2, '0');
+  
+  // Retorna "YYYY-MM-DD" baseado no horário do Brasil/Celular
+  return `${year}-${month}-${day}`;
+};
 
-// --- FUNÇÕES DE HISTÓRICO (IMPORTANTE PARA A BARRINHA) ---
+// ==========================================
+// FUNÇÕES DE HISTÓRICO (DIÁRIO)
+// ==========================================
 
 export const saveDailyLog = async (date, dataToMerge) => {
   try {
     const json = await AsyncStorage.getItem(HISTORY_KEY);
     const history = json ? JSON.parse(json) : {};
     
-    // Pega o que já tem no dia ou cria zerado
     const currentDay = history[date] || { meals: [], water: 0, totalCalories: 0 };
     
-    // Atualiza apenas o que mudou (ex: só as refeições, mantendo a água)
+    // Atualiza mantendo os dados antigos
     history[date] = { ...currentDay, ...dataToMerge };
     
     await AsyncStorage.setItem(HISTORY_KEY, JSON.stringify(history));
-    console.log("Salvo com sucesso:", history[date]); // Debug
   } catch (e) {
     console.error("Erro ao salvar diário:", e);
   }
@@ -51,13 +62,22 @@ export const getDayLog = async (date, onSuccess) => {
   }
 };
 
-// --- FUNÇÕES DE FOTOS (GALERIA) ---
+// ==========================================
+// FUNÇÕES DE FOTOS (GALERIA)
+// ==========================================
+
 export const savePhotoLog = async (date, photoUri, weight) => {
   try {
     const json = await AsyncStorage.getItem(PHOTOS_KEY);
     const gallery = json ? JSON.parse(json) : {};
     const dayPhotos = gallery[date] || [];
-    const newEntry = { id: Date.now().toString(), uri: photoUri, weight: weight || '' };
+    
+    const newEntry = {
+      id: Date.now().toString(),
+      uri: photoUri,
+      weight: weight || ''
+    };
+
     gallery[date] = [newEntry, ...dayPhotos];
     await AsyncStorage.setItem(PHOTOS_KEY, JSON.stringify(gallery));
   } catch (e) { console.error(e); }
@@ -68,7 +88,8 @@ export const getGallery = async (onSuccess) => {
     const json = await AsyncStorage.getItem(PHOTOS_KEY);
     const gallery = json ? JSON.parse(json) : {};
     if (onSuccess) onSuccess(gallery);
-  } catch (e) {}
+    return gallery;
+  } catch (e) { return {}; }
 };
 
 export const deletePhoto = async (date, photoId, onSuccess) => {
@@ -81,10 +102,13 @@ export const deletePhoto = async (date, photoId, onSuccess) => {
       await AsyncStorage.setItem(PHOTOS_KEY, JSON.stringify(gallery));
       if (onSuccess) onSuccess(gallery);
     }
-  } catch (e) {}
+  } catch (e) { console.error(e); }
 };
 
-// --- FUNÇÕES DE COMIDA (BUSCA) ---
+// ==========================================
+// FUNÇÕES DE COMIDA (CUSTOMIZADAS)
+// ==========================================
+
 export const addCustomFood = async (name, calories, category, onSuccess) => {
   try {
     const existingJSON = await AsyncStorage.getItem(CUSTOM_FOODS_KEY);
@@ -102,7 +126,10 @@ export const getCustomFoods = async (onSuccess) => {
   } catch (e) {}
 };
 
-// --- FUNÇÕES DE PERFIL ---
+// ==========================================
+// FUNÇÕES DE PERFIL
+// ==========================================
+
 export const saveProfile = async (profileData) => {
   try {
     await AsyncStorage.setItem(PROFILE_KEY, JSON.stringify(profileData));
