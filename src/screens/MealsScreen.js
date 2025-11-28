@@ -5,17 +5,20 @@ import {
 import { LinearGradient } from 'expo-linear-gradient';
 import { Feather } from '@expo/vector-icons';
 import { initialFoods, categories } from '../data/foodList';
-// Importa novas funções
+// Importação CORRETA das funções
 import { addCustomFood, getCustomFoods, saveDailyLog, getDayLog, getTodayKey } from '../services/db';
 
 export default function MealsScreen() {
   const [mode, setMode] = useState('list');
   const [todaysMeals, setTodaysMeals] = useState([]);
   const [customFoods, setCustomFoods] = useState([]);
+  
   const [searchText, setSearchText] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('all');
+  
   const [selectedItem, setSelectedItem] = useState(null);
   const [weight, setWeight] = useState('');
+
   const [newName, setNewName] = useState('');
   const [newKcal, setNewKcal] = useState('');
   const [newCat, setNewCat] = useState('Salgada');
@@ -26,17 +29,25 @@ export default function MealsScreen() {
 
   const loadData = () => {
     getCustomFoods(setCustomFoods);
-    // Carrega o dia atual
+    // Carrega o dia de hoje
     getDayLog(getTodayKey(), (data) => {
       setTodaysMeals(data.meals || []);
     });
   };
 
-  // Função auxiliar para salvar estado e histórico
+  // --- O SEGREDO ESTÁ AQUI ---
+  // Esta função garante que salvamos a LISTA e o TOTAL DE CALORIAS juntos
   const updateHistory = (newMeals) => {
-    setTodaysMeals(newMeals);
+    setTodaysMeals(newMeals); // Atualiza na tela
+    
+    // Recalcula o total de calorias do zero para não ter erro
     const totalCals = newMeals.reduce((acc, curr) => acc + curr.calories, 0);
-    saveDailyLog(getTodayKey(), { meals: newMeals, totalCalories: totalCals });
+    
+    // Salva no banco
+    saveDailyLog(getTodayKey(), { 
+      meals: newMeals, 
+      totalCalories: totalCals 
+    });
   };
 
   const allFoods = [...initialFoods, ...customFoods];
@@ -50,6 +61,7 @@ export default function MealsScreen() {
     if (!selectedItem || !weight) return Alert.alert("Erro", "Selecione o alimento e o peso.");
     
     const totalKcal = (selectedItem.calories / 100) * parseFloat(weight);
+
     const newMeal = {
       id: Date.now().toString(),
       name: selectedItem.name,
@@ -58,34 +70,37 @@ export default function MealsScreen() {
       time: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
     };
 
-    const updated = [...todaysMeals, newMeal];
-    updateHistory(updated); // Salva no histórico!
+    // Cria a nova lista baseada na anterior + a nova refeição
+    const updated = [newMeal, ...todaysMeals];
+    
+    // Chama a função que salva tudo
+    updateHistory(updated);
 
+    // Reseta inputs
     setWeight('');
     setSelectedItem(null);
+    setSearchText('');
     setMode('list');
     Keyboard.dismiss();
   };
 
   const deleteMeal = (id) => {
     const updated = todaysMeals.filter(m => m.id !== id);
-    updateHistory(updated); // Atualiza histórico
+    updateHistory(updated);
   };
 
   const handleCreateFood = () => {
-    if (!newName || !newKcal) return Alert.alert("Erro", "Preencha tudo.");
+    if (!newName || !newKcal) return Alert.alert("Erro", "Preencha nome e calorias.");
     addCustomFood(newName, parseFloat(newKcal), newCat, () => {
+      Alert.alert("Sucesso", "Alimento criado!");
       setNewName(''); setNewKcal('');
-      loadData();
+      loadData(); // Recarrega para o novo alimento aparecer
       setMode('search');
     });
   };
 
   const totalCalories = todaysMeals.reduce((acc, curr) => acc + curr.calories, 0);
 
-  // ... (O restante da renderização permanece igual, só mudei a lógica acima) ...
-  // Para economizar espaço, vou colar a renderização simplificada, que é a mesma de antes.
-  
   return (
     <View style={styles.container}>
       <LinearGradient colors={['#22c55e', '#16a34a']} style={styles.summaryCard}>
@@ -94,15 +109,19 @@ export default function MealsScreen() {
         <Text style={styles.summaryUnit}>kcal</Text>
       </LinearGradient>
 
+      {/* MODO: LISTA */}
       {mode === 'list' && (
         <View style={{ flex: 1 }}>
           <TouchableOpacity style={styles.btnAddMain} onPress={() => setMode('search')}>
             <Feather name="plus-circle" size={24} color="#fff" />
             <Text style={styles.btnTextMain}>Registrar Refeição</Text>
           </TouchableOpacity>
+
           <FlatList
             data={todaysMeals}
             keyExtractor={item => item.id}
+            contentContainerStyle={{ paddingBottom: 20 }}
+            ListEmptyComponent={<Text style={styles.emptyText}>Nada registrado hoje.</Text>}
             renderItem={({ item }) => (
               <View style={styles.mealItem}>
                 <View>
@@ -118,6 +137,7 @@ export default function MealsScreen() {
         </View>
       )}
 
+      {/* MODO: BUSCA */}
       {mode === 'search' && (
         <View style={{ flex: 1 }}>
           <View style={styles.searchHeader}>
@@ -140,6 +160,7 @@ export default function MealsScreen() {
           <FlatList
             data={filteredFoods}
             keyExtractor={(item, idx) => item.id ? item.id.toString() : idx.toString()}
+            style={{ flex: 1 }}
             renderItem={({ item }) => (
               <TouchableOpacity style={[styles.foodRow, selectedItem?.name === item.name && styles.foodRowSelected]} onPress={() => setSelectedItem(item)}>
                 <Text style={styles.foodName}>{item.name}</Text>
@@ -153,15 +174,18 @@ export default function MealsScreen() {
               <Text style={styles.panelTitle}>{selectedItem.name}</Text>
               <View style={styles.inputRow}>
                 <TextInput style={[styles.input, { flex: 1 }]} placeholder="Peso (g)" keyboardType="numeric" value={weight} onChangeText={setWeight} />
-                <TouchableOpacity style={styles.btnConfirm} onPress={handleAddMeal}><Text style={{ color: '#fff' }}>Adicionar</Text></TouchableOpacity>
+                <TouchableOpacity style={styles.btnConfirm} onPress={handleAddMeal}><Text style={{ color: '#fff', fontWeight: 'bold' }}>Adicionar</Text></TouchableOpacity>
               </View>
             </View>
           ) : (
-            <TouchableOpacity style={styles.btnCreate} onPress={() => setMode('create')}><Text style={{ color: '#16a34a' }}>Criar Novo Alimento</Text></TouchableOpacity>
+            <TouchableOpacity style={styles.btnCreate} onPress={() => setMode('create')}>
+              <Text style={{ color: '#16a34a', fontWeight: 'bold' }}>Não achou? Cadastrar Novo</Text>
+            </TouchableOpacity>
           )}
         </View>
       )}
 
+      {/* MODO: CRIAR */}
       {mode === 'create' && (
         <View style={styles.card}>
           <Text style={styles.cardTitle}>Novo Alimento</Text>
@@ -188,6 +212,7 @@ const styles = StyleSheet.create({
   mealItem: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#fff', padding: 15, borderRadius: 12, marginBottom: 10, elevation: 2 },
   mealName: { fontSize: 16, fontWeight: '600', color: '#333' },
   mealDetail: { color: '#666', fontSize: 14 },
+  emptyText: { textAlign: 'center', color: '#999', marginTop: 20 },
   searchHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 10 },
   searchInput: { flex: 1, backgroundColor: '#fff', borderWidth: 1, borderColor: '#ddd', borderRadius: 8, padding: 10, fontSize: 16 },
   catChip: { paddingHorizontal: 15, paddingVertical: 8, backgroundColor: '#fff', borderWidth: 1, borderColor: '#ddd', borderRadius: 20, marginRight: 8 },
