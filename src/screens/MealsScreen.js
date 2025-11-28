@@ -1,11 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { 
   View, Text, TextInput, TouchableOpacity, StyleSheet, FlatList, Alert, ScrollView, Keyboard 
-} from 'react-native';
+} from 'react-native'; // <--- ScrollView adicionado aqui!
 import { LinearGradient } from 'expo-linear-gradient';
 import { Feather } from '@expo/vector-icons';
 import { initialFoods, categories } from '../data/foodList';
-// Importação CORRETA das funções
 import { addCustomFood, getCustomFoods, saveDailyLog, getDayLog, getTodayKey } from '../services/db';
 
 export default function MealsScreen() {
@@ -29,25 +28,15 @@ export default function MealsScreen() {
 
   const loadData = () => {
     getCustomFoods(setCustomFoods);
-    // Carrega o dia de hoje
     getDayLog(getTodayKey(), (data) => {
       setTodaysMeals(data.meals || []);
     });
   };
 
-  // --- O SEGREDO ESTÁ AQUI ---
-  // Esta função garante que salvamos a LISTA e o TOTAL DE CALORIAS juntos
-  const updateHistory = (newMeals) => {
-    setTodaysMeals(newMeals); // Atualiza na tela
-    
-    // Recalcula o total de calorias do zero para não ter erro
-    const totalCals = newMeals.reduce((acc, curr) => acc + curr.calories, 0);
-    
-    // Salva no banco
-    saveDailyLog(getTodayKey(), { 
-      meals: newMeals, 
-      totalCalories: totalCals 
-    });
+  const updateHistory = async (newMeals) => {
+    setTodaysMeals(newMeals);
+    const totalCals = newMeals.reduce((acc, curr) => acc + Number(curr.calories), 0);
+    await saveDailyLog(getTodayKey(), { meals: newMeals, totalCalories: totalCals });
   };
 
   const allFoods = [...initialFoods, ...customFoods];
@@ -57,7 +46,7 @@ export default function MealsScreen() {
     return matchName && matchCat;
   });
 
-  const handleAddMeal = () => {
+  const handleAddMeal = async () => {
     if (!selectedItem || !weight) return Alert.alert("Erro", "Selecione o alimento e o peso.");
     
     const totalKcal = (selectedItem.calories / 100) * parseFloat(weight);
@@ -70,13 +59,9 @@ export default function MealsScreen() {
       time: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
     };
 
-    // Cria a nova lista baseada na anterior + a nova refeição
     const updated = [newMeal, ...todaysMeals];
-    
-    // Chama a função que salva tudo
-    updateHistory(updated);
+    await updateHistory(updated);
 
-    // Reseta inputs
     setWeight('');
     setSelectedItem(null);
     setSearchText('');
@@ -84,22 +69,22 @@ export default function MealsScreen() {
     Keyboard.dismiss();
   };
 
-  const deleteMeal = (id) => {
+  const deleteMeal = async (id) => {
     const updated = todaysMeals.filter(m => m.id !== id);
-    updateHistory(updated);
+    await updateHistory(updated);
   };
 
   const handleCreateFood = () => {
-    if (!newName || !newKcal) return Alert.alert("Erro", "Preencha nome e calorias.");
+    if (!newName || !newKcal) return Alert.alert("Erro", "Preencha tudo.");
     addCustomFood(newName, parseFloat(newKcal), newCat, () => {
-      Alert.alert("Sucesso", "Alimento criado!");
+      Alert.alert("Sucesso", "Criado!");
       setNewName(''); setNewKcal('');
-      loadData(); // Recarrega para o novo alimento aparecer
+      loadData();
       setMode('search');
     });
   };
 
-  const totalCalories = todaysMeals.reduce((acc, curr) => acc + curr.calories, 0);
+  const totalCalories = todaysMeals.reduce((acc, curr) => acc + Number(curr.calories), 0);
 
   return (
     <View style={styles.container}>
@@ -109,7 +94,6 @@ export default function MealsScreen() {
         <Text style={styles.summaryUnit}>kcal</Text>
       </LinearGradient>
 
-      {/* MODO: LISTA */}
       {mode === 'list' && (
         <View style={{ flex: 1 }}>
           <TouchableOpacity style={styles.btnAddMain} onPress={() => setMode('search')}>
@@ -137,7 +121,6 @@ export default function MealsScreen() {
         </View>
       )}
 
-      {/* MODO: BUSCA */}
       {mode === 'search' && (
         <View style={{ flex: 1 }}>
           <View style={styles.searchHeader}>
@@ -179,13 +162,12 @@ export default function MealsScreen() {
             </View>
           ) : (
             <TouchableOpacity style={styles.btnCreate} onPress={() => setMode('create')}>
-              <Text style={{ color: '#16a34a', fontWeight: 'bold' }}>Não achou? Cadastrar Novo</Text>
+              <Text style={{ color: '#16a34a', fontWeight: 'bold' }}>Não achou? Criar Novo</Text>
             </TouchableOpacity>
           )}
         </View>
       )}
 
-      {/* MODO: CRIAR */}
       {mode === 'create' && (
         <View style={styles.card}>
           <Text style={styles.cardTitle}>Novo Alimento</Text>
