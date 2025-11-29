@@ -5,21 +5,19 @@ import {
 import { LinearGradient } from 'expo-linear-gradient';
 import { Feather } from '@expo/vector-icons';
 
-// Importação das Telas
 import Header from './src/components/Header';
 import MealsScreen from './src/screens/MealsScreen';
 import WaterScreen from './src/screens/WaterScreen';
 import ProfileScreen from './src/screens/ProfileScreen';
-import GalleryScreen from './src/screens/GalleryScreen'; // <--- Nova Importação
+import GalleryScreen from './src/screens/GalleryScreen';
 
 export default function App() {
   const [currentTab, setCurrentTab] = useState('profile');
 
-  // Lógica para mudar a cor do tema baseado na aba
   const getThemeColor = () => {
-    if (currentTab === 'water') return ['#eff6ff', '#dbeafe']; // Azul
-    if (currentTab === 'gallery') return ['#f5f3ff', '#ede9fe']; // Roxo
-    return ['#f0fdf4', '#eff6ff']; // Verde (Padrão)
+    if (currentTab === 'water') return ['#eff6ff', '#dbeafe']; 
+    if (currentTab === 'gallery') return ['#f5f3ff', '#ede9fe']; 
+    return ['#f0fdf4', '#eff6ff']; 
   };
 
   const getStatusBarColor = () => {
@@ -31,14 +29,12 @@ export default function App() {
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor={getStatusBarColor()} />
-      
       <LinearGradient colors={getThemeColor()} style={styles.background} />
 
       <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={{ flex: 1 }}>
         <View style={{ flex: 1 }}>
           <Header />
 
-          {/* MENU SUPERIOR (Scrollável para caber tudo) */}
           <View style={styles.tabContainer}>
             <TouchableOpacity onPress={() => setCurrentTab('profile')} style={[styles.tabButton, currentTab === 'profile' && styles.activeTabGreen]}>
               <Feather name="user" size={18} color={currentTab === 'profile' ? '#fff' : '#4b5563'} />
@@ -61,7 +57,6 @@ export default function App() {
             </TouchableOpacity>
           </View>
 
-          {/* CONTEÚDO */}
           <View style={{ flex: 1 }}>
             {currentTab === 'profile' && <ProfileScreen />}
             {currentTab === 'meals' && <MealsScreen />}
@@ -78,17 +73,13 @@ export default function App() {
 const styles = StyleSheet.create({
   container: { flex: 1 },
   background: { position: 'absolute', left: 0, right: 0, top: 0, height: '100%' },
-  
   tabContainer: { 
-    flexDirection: 'row', 
-    backgroundColor: '#fff', 
-    elevation: 4, 
+    flexDirection: 'row', backgroundColor: '#fff', elevation: 4, 
     shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.1, shadowRadius: 2,
     borderBottomWidth: 1, borderBottomColor: '#f0f0f0' 
   },
   tabButton: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingVertical: 12 },
   tabText: { fontWeight: '600', marginLeft: 4, fontSize: 12, color: '#4b5563' },
-  
   activeTabGreen: { backgroundColor: '#16a34a' },
   activeTabBlue: { backgroundColor: '#2563eb' },
   activeTabPurple: { backgroundColor: '#7c3aed' },

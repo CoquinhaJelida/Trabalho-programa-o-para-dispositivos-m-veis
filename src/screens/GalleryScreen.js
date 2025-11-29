@@ -5,38 +5,46 @@ import {
 import { LinearGradient } from 'expo-linear-gradient';
 import { Feather } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
-import { savePhotoLog, getGallery, deletePhoto, getTodayKey, getProfile } from '../services/db';
+// Importamos getHistory para ler as fotos das refeições
+import { savePhotoLog, getGallery, deletePhoto, getTodayKey, getProfile, getHistory } from '../services/db';
 
 export default function GalleryScreen() {
-  const [gallery, setGallery] = useState({});
+  const [activeTab, setActiveTab] = useState('body'); // 'body' ou 'meals'
   
-  // Estado modificado: agora guarda o OBJETO completo da imagem selecionada (uri, id, date)
-  const [selectedImage, setSelectedImage] = useState(null); 
+  // Dados
+  const [bodyGallery, setBodyGallery] = useState({});
+  const [mealHistory, setMealHistory] = useState({});
   
-  // Estados para o Modal de Peso (Adicionar)
+  // Visualização (Zoom)
+  const [selectedImage, setSelectedImage] = useState(null);
+  
+  // Modal de Peso (Apenas para Corpo)
   const [modalVisible, setModalVisible] = useState(false);
   const [tempPhotoUri, setTempPhotoUri] = useState(null);
   const [weightInput, setWeightInput] = useState('');
 
+  // Recarrega os dados sempre que entrar na tela ou mudar de aba
   useEffect(() => {
-    loadImages();
-  }, []);
+    loadData();
+  }, [activeTab]);
 
-  const loadImages = () => {
-    getGallery(setGallery);
+  const loadData = () => {
+    // 1. Carrega fotos do corpo
+    getGallery(setBodyGallery);
+    // 2. Carrega histórico de refeições (para filtrar as que têm foto)
+    getHistory(setMealHistory);
   };
 
   const prepareWeightInput = () => {
     getProfile((data) => {
-      if (data && data.weight) {
-        setWeightInput(data.weight);
-      } else {
-        setWeightInput('');
-      }
+      if (data && data.weight) setWeightInput(data.weight);
+      else setWeightInput('');
     });
   };
 
-  const handleAddPhoto = async () => {
+  // --- FUNÇÕES DA GALERIA DE CORPO ---
+
+  const handleAddBodyPhoto = async () => {
     Alert.alert("Nova Foto", "Escolha a origem:", [
       { text: "Cancelar", style: "cancel" },
       { text: "Galeria", onPress: () => pickImage('gallery') },
@@ -46,16 +54,16 @@ export default function GalleryScreen() {
 
   const pickImage = async (type) => {
     let result;
-    const options = {
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      quality: 0.7,
-      allowsEditing: true,
-      aspect: [4, 5],
+    const options = { 
+      mediaTypes: ImagePicker.MediaTypeOptions.Images, 
+      quality: 0.7, 
+      allowsEditing: true, 
+      aspect: [4, 5] 
     };
 
     if (type === 'camera') {
       const permission = await ImagePicker.requestCameraPermissionsAsync();
-      if (!permission.granted) return Alert.alert("Erro", "Sem permissão de câmera.");
+      if (!permission.granted) return Alert.alert("Erro", "Sem permissão.");
       result = await ImagePicker.launchCameraAsync(options);
     } else {
       result = await ImagePicker.launchImageLibraryAsync(options);
@@ -68,140 +76,183 @@ export default function GalleryScreen() {
     }
   };
 
-  const saveFinalPhoto = async () => {
+  const saveFinalBodyPhoto = async () => {
     if (tempPhotoUri) {
       const today = getTodayKey();
       await savePhotoLog(today, tempPhotoUri, weightInput);
       setModalVisible(false);
       setTempPhotoUri(null);
-      loadImages();
+      loadData();
     }
   };
 
-  // Função de deletar chamada de dentro do Modal de Zoom
-  const handleDeleteCurrent = () => {
-    if (!selectedImage) return;
-
-    Alert.alert(
-      "Excluir Foto", 
-      "Tem certeza que deseja apagar este registro?", 
-      [
-        { text: "Cancelar", style: "cancel" },
-        { 
-          text: "Apagar", 
-          style: "destructive", 
-          onPress: async () => {
-            await deletePhoto(selectedImage.date, selectedImage.id, setGallery);
-            setSelectedImage(null); // Fecha o modal após deletar
-          } 
-        }
-      ]
-    );
+  const handleDeleteBody = (date, id) => {
+    Alert.alert("Excluir", "Apagar este registro?", [
+      { text: "Cancelar", style: "cancel" },
+      { text: "Sim", onPress: () => deletePhoto(date, id, setBodyGallery) }
+    ]);
   };
 
-  const dates = Object.keys(gallery).sort().reverse();
+  // --- PREPARAÇÃO DAS LISTAS ---
+
+  // Datas com fotos de corpo
+  const bodyDates = Object.keys(bodyGallery).sort().reverse();
+
+  // Datas com fotos de comida (Filtra o histórico para achar refeições com 'image')
+  const mealDates = Object.keys(mealHistory).filter(date => {
+    const day = mealHistory[date];
+    return day.meals && day.meals.some(m => m.image);
+  }).sort().reverse();
 
   return (
     <View style={styles.container}>
-      <TouchableOpacity style={styles.btnAdd} onPress={handleAddPhoto}>
-        <LinearGradient colors={['#8b5cf6', '#6d28d9']} style={styles.btnGradient}>
-          <Feather name="camera" size={24} color="#fff" />
-          <Text style={styles.btnText}>Registrar Progresso</Text>
-        </LinearGradient>
-      </TouchableOpacity>
+      
+      {/* SELETOR DE ABAS */}
+      <View style={styles.tabContainer}>
+        <TouchableOpacity 
+          onPress={() => setActiveTab('body')} 
+          style={[styles.tabBtn, activeTab === 'body' && styles.tabBtnActive]}
+        >
+          <Text style={[styles.tabText, activeTab === 'body' && styles.tabTextActive]}>Meu Corpo</Text>
+        </TouchableOpacity>
+        <TouchableOpacity 
+          onPress={() => setActiveTab('meals')} 
+          style={[styles.tabBtn, activeTab === 'meals' && styles.tabBtnActive]}
+        >
+          <Text style={[styles.tabText, activeTab === 'meals' && styles.tabTextActive]}>Refeições</Text>
+        </TouchableOpacity>
+      </View>
 
-      {dates.length === 0 ? (
-        <View style={styles.emptyState}>
-          <Feather name="image" size={60} color="#e9d5ff" />
-          <Text style={styles.emptyText}>Seu diário visual começa aqui.</Text>
-        </View>
-      ) : (
+      {/* --- CONTEÚDO: CORPO --- */}
+      {activeTab === 'body' && (
+        <>
+          <TouchableOpacity style={styles.btnAdd} onPress={handleAddBodyPhoto}>
+            <LinearGradient colors={['#8b5cf6', '#6d28d9']} style={styles.btnGradient}>
+              <Feather name="camera" size={24} color="#fff" />
+              <Text style={styles.btnText}>Registrar Evolução</Text>
+            </LinearGradient>
+          </TouchableOpacity>
+
+          <FlatList
+            data={bodyDates}
+            keyExtractor={item => item}
+            contentContainerStyle={{ paddingBottom: 20 }}
+            ListEmptyComponent={
+              <View style={styles.emptyState}>
+                <Feather name="user" size={50} color="#ddd" />
+                <Text style={styles.emptyText}>Sem fotos de evolução.</Text>
+              </View>
+            }
+            renderItem={({ item: date }) => (
+              <View style={styles.dateSection}>
+                <View style={styles.dateHeader}>
+                  <Feather name="calendar" size={16} color="#7c3aed" />
+                  <Text style={styles.dateText}>{date.split('-').reverse().join('/')}</Text>
+                </View>
+                
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingRight: 20 }}>
+                  {bodyGallery[date].map((item, index) => {
+                    const uri = item.uri || item; 
+                    const weight = item.weight || null; 
+                    const id = item.id || item;
+                    return (
+                      <TouchableOpacity 
+                        key={index} 
+                        onPress={() => setSelectedImage({ uri })} 
+                        onLongPress={() => handleDeleteBody(date, id)} 
+                        style={styles.cardWrapper}
+                      >
+                        <Image source={{ uri }} style={styles.thumbnailBody} />
+                        {weight && (
+                          <View style={styles.weightBadge}>
+                            <Text style={styles.weightText}>{weight}kg</Text>
+                          </View>
+                        )}
+                      </TouchableOpacity>
+                    );
+                  })}
+                </ScrollView>
+              </View>
+            )}
+          />
+        </>
+      )}
+
+      {/* --- CONTEÚDO: REFEIÇÕES --- */}
+      {activeTab === 'meals' && (
         <FlatList
-          data={dates}
+          data={mealDates}
           keyExtractor={item => item}
           contentContainerStyle={{ paddingBottom: 20 }}
+          ListEmptyComponent={
+            <View style={styles.emptyState}>
+              <Feather name="coffee" size={50} color="#ddd" />
+              <Text style={styles.emptyText}>Nenhuma refeição fotografada.</Text>
+              <Text style={{color:'#aaa', fontSize: 12}}>Adicione fotos na aba Refeições.</Text>
+            </View>
+          }
           renderItem={({ item: date }) => (
             <View style={styles.dateSection}>
               <View style={styles.dateHeader}>
-                <Feather name="calendar" size={16} color="#7c3aed" />
+                <Feather name="calendar" size={16} color="#16a34a" />
                 <Text style={styles.dateText}>{date.split('-').reverse().join('/')}</Text>
               </View>
               
-              <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-                {gallery[date].map((item, index) => {
-                  const uri = item.uri || item; 
-                  const weight = item.weight || null;
-                  const id = item.id || item;
-
-                  return (
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingRight: 20 }}>
+                {mealHistory[date].meals
+                  .filter(m => m.image) // Só mostra as que tem foto
+                  .map((meal, index) => (
                     <TouchableOpacity 
                       key={index} 
-                      // Passamos o objeto completo (Data, ID, URI) para o modal saber o que deletar
-                      onPress={() => setSelectedImage({ uri, id, date })}
-                      style={styles.cardWrapper}
+                      onPress={() => setSelectedImage({ uri: meal.image })} 
+                      style={styles.mealCard}
                     >
-                      <Image source={{ uri }} style={styles.thumbnail} />
-                      {weight && (
-                        <View style={styles.weightBadge}>
-                          <Text style={styles.weightText}>{weight}kg</Text>
-                        </View>
-                      )}
+                      <Image source={{ uri: meal.image }} style={styles.thumbnailMeal} />
+                      <View style={styles.mealInfo}>
+                        <Text style={styles.mealName} numberOfLines={1}>{meal.name}</Text>
+                        <Text style={styles.mealCal}>{meal.calories} kcal</Text>
+                      </View>
                     </TouchableOpacity>
-                  );
-                })}
+                  ))
+                }
               </ScrollView>
             </View>
           )}
         />
       )}
 
-      {/* --- MODAL 1: Inserir Peso (Ao adicionar) --- */}
+      {/* --- MODAL DE PESO (CORPO) --- */}
       <Modal visible={modalVisible} transparent={true} animationType="slide">
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
-            <Text style={styles.modalTitle}>Registrar Peso</Text>
-            <Text style={styles.modalSub}>Quantos kg você estava pesando nesta foto?</Text>
-            
-            {tempPhotoUri && (
-              <Image source={{ uri: tempPhotoUri }} style={styles.modalPreview} />
-            )}
-
+            <Text style={styles.modalTitle}>Peso Atual</Text>
+            {tempPhotoUri && <Image source={{ uri: tempPhotoUri }} style={styles.modalPreview} />}
             <TextInput 
               style={styles.input} 
-              placeholder="Ex: 75.5" 
-              keyboardType="numeric"
-              value={weightInput}
-              onChangeText={setWeightInput}
-              autoFocus
+              placeholder="Kg" 
+              keyboardType="numeric" 
+              value={weightInput} 
+              onChangeText={setWeightInput} 
+              autoFocus 
             />
-
             <View style={styles.modalButtons}>
               <TouchableOpacity onPress={() => setModalVisible(false)} style={styles.btnCancel}>
                 <Text style={styles.btnCancelText}>Cancelar</Text>
               </TouchableOpacity>
-              <TouchableOpacity onPress={saveFinalPhoto} style={styles.btnSave}>
-                <Text style={styles.btnSaveText}>Salvar Tudo</Text>
+              <TouchableOpacity onPress={saveFinalBodyPhoto} style={styles.btnSave}>
+                <Text style={styles.btnSaveText}>Salvar</Text>
               </TouchableOpacity>
             </View>
           </View>
         </View>
       </Modal>
 
-      {/* --- MODAL 2: Zoom na Foto e Opção de DELETAR --- */}
+      {/* --- MODAL DE ZOOM (COMUM) --- */}
       <Modal visible={selectedImage !== null} transparent={true} animationType="fade">
         <View style={styles.zoomContainer}>
-          
-          {/* Botão Fechar (X) */}
           <TouchableOpacity style={styles.closeBtn} onPress={() => setSelectedImage(null)}>
             <Feather name="x" size={28} color="#fff" />
           </TouchableOpacity>
-
-          {/* Botão Deletar (Lixeira) - NOVO */}
-          <TouchableOpacity style={styles.deleteBtn} onPress={handleDeleteCurrent}>
-            <Feather name="trash-2" size={24} color="#ef4444" />
-            <Text style={styles.deleteText}>Excluir</Text>
-          </TouchableOpacity>
-
           {selectedImage && (
             <Image 
               source={{ uri: selectedImage.uri }} 
@@ -211,12 +262,21 @@ export default function GalleryScreen() {
           )}
         </View>
       </Modal>
+
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: { flex: 1, padding: 20 },
+  
+  // Abas
+  tabContainer: { flexDirection: 'row', backgroundColor: '#eee', borderRadius: 12, padding: 4, marginBottom: 20 },
+  tabBtn: { flex: 1, paddingVertical: 10, alignItems: 'center', borderRadius: 10 },
+  tabBtnActive: { backgroundColor: '#fff', elevation: 2 },
+  tabText: { color: '#666', fontWeight: '600' },
+  tabTextActive: { color: '#7c3aed', fontWeight: 'bold' },
+
   btnAdd: { marginBottom: 15 },
   btnGradient: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', padding: 15, borderRadius: 12, elevation: 3 },
   btnText: { color: '#fff', fontWeight: 'bold', fontSize: 16, marginLeft: 10 },
@@ -228,33 +288,31 @@ const styles = StyleSheet.create({
   dateHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 10, borderBottomWidth: 1, borderBottomColor: '#f3f4f6', paddingBottom: 5 },
   dateText: { fontWeight: 'bold', color: '#555', marginLeft: 8 },
   
-  cardWrapper: { marginRight: 15, position: 'relative' },
-  thumbnail: { width: 110, height: 140, borderRadius: 10, backgroundColor: '#eee' },
+  // Estilo CORPO
+  cardWrapper: { marginRight: 15, width: 110, position: 'relative' },
+  thumbnailBody: { width: 110, height: 140, borderRadius: 10, backgroundColor: '#eee' },
   weightBadge: { position: 'absolute', bottom: 5, right: 5, backgroundColor: 'rgba(0,0,0,0.7)', paddingHorizontal: 8, paddingVertical: 2, borderRadius: 10 },
   weightText: { color: '#fff', fontSize: 10, fontWeight: 'bold' },
 
-  // Modal Peso
+  // Estilo REFEIÇÕES
+  mealCard: { marginRight: 15, width: 120 },
+  thumbnailMeal: { width: 120, height: 120, borderRadius: 10, backgroundColor: '#eee', marginBottom: 5 },
+  mealInfo: { alignItems: 'center' },
+  mealName: { fontWeight: 'bold', color: '#333', fontSize: 12, textAlign: 'center' },
+  mealCal: { color: '#16a34a', fontSize: 12, fontWeight: '600' },
+
+  // Modais
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', padding: 20 },
   modalContent: { backgroundColor: '#fff', borderRadius: 20, padding: 20, alignItems: 'center', elevation: 5 },
   modalTitle: { fontSize: 20, fontWeight: 'bold', color: '#333' },
-  modalSub: { color: '#666', marginBottom: 15, textAlign: 'center' },
-  modalPreview: { width: 100, height: 100, borderRadius: 10, marginBottom: 15 },
+  modalPreview: { width: 100, height: 100, borderRadius: 10, marginBottom: 15, marginTop: 10 },
   input: { borderWidth: 1, borderColor: '#ddd', borderRadius: 10, padding: 10, width: '100%', fontSize: 18, textAlign: 'center', marginBottom: 20 },
   modalButtons: { flexDirection: 'row', width: '100%', gap: 10 },
   btnCancel: { flex: 1, padding: 12, backgroundColor: '#f3f4f6', borderRadius: 10, alignItems: 'center' },
   btnCancelText: { color: '#666', fontWeight: 'bold' },
   btnSave: { flex: 1, padding: 12, backgroundColor: '#8b5cf6', borderRadius: 10, alignItems: 'center' },
   btnSaveText: { color: '#fff', fontWeight: 'bold' },
-
-  // Modal Zoom
-  zoomContainer: { flex: 1, backgroundColor: 'rgba(0,0,0,0.95)', justifyContent: 'center', alignItems: 'center' },
-  
-  // Botão Fechar (Topo Direito)
+  zoomContainer: { flex: 1, backgroundColor: 'rgba(0,0,0,0.95)', justifyContent: 'center' },
   closeBtn: { position: 'absolute', top: 50, right: 20, zIndex: 20, padding: 10, backgroundColor: 'rgba(255,255,255,0.2)', borderRadius: 20 },
-  
-  // Botão Deletar (Topo Esquerdo)
-  deleteBtn: { position: 'absolute', top: 50, left: 20, zIndex: 20, padding: 10, backgroundColor: 'rgba(255,255,255,0.1)', borderRadius: 20, flexDirection: 'row', alignItems: 'center' },
-  deleteText: { color: '#ef4444', marginLeft: 8, fontWeight: 'bold' },
-
   fullImage: { width: '100%', height: '80%' },
 });
