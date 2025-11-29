@@ -12,6 +12,10 @@ export default function ProfileScreen() {
   const [age, setAge] = useState('');
   const [weight, setWeight] = useState('');
   const [height, setHeight] = useState('');
+  
+  // NOVO CAMPO: Meta de Peso
+  const [targetWeight, setTargetWeight] = useState(''); 
+  
   const [calorieGoal, setCalorieGoal] = useState('2000');
   const [isStrict, setIsStrict] = useState(false); 
   const [calorieStreak, setCalorieStreak] = useState({ status: 'good', count: 0 });
@@ -34,6 +38,7 @@ export default function ProfileScreen() {
         setHeight(data.height || '');
         setCalorieGoal(data.calorieGoal || '2000');
         setIsStrict(data.isStrict || false);
+        setTargetWeight(data.targetWeight || ''); // Carrega a meta de peso
       }
     });
 
@@ -56,21 +61,18 @@ export default function ProfileScreen() {
     });
   }, [todayCalories, calorieGoal, isStrict]);
 
+  // Salva tudo, incluindo targetWeight
   useEffect(() => {
     if (name || age || weight || height || calorieGoal) {
-      saveProfile({ name, age, weight, height, calorieGoal, isStrict });
+      saveProfile({ name, age, weight, height, calorieGoal, isStrict, targetWeight });
     }
-  }, [name, age, weight, height, calorieGoal, isStrict]);
+  }, [name, age, weight, height, calorieGoal, isStrict, targetWeight]);
 
   const handleDeleteDay = (date) => {
-    Alert.alert(
-      "Apagar Dia",
-      `Tem certeza?`,
-      [
-        { text: "Cancelar", style: "cancel" },
-        { text: "Apagar", style: "destructive", onPress: () => { deleteDailyLog(date, () => { loadAllData(); }); } }
-      ]
-    );
+    Alert.alert("Apagar Dia", "Tem certeza?", [
+      { text: "Cancelar", style: "cancel" },
+      { text: "Apagar", style: "destructive", onPress: () => { deleteDailyLog(date, () => { loadAllData(); }); } }
+    ]);
   };
 
   const handleResetApp = () => {
@@ -101,109 +103,108 @@ export default function ProfileScreen() {
 
   const showStrictBanner = isStrict;
   const showFlexBanner = !isStrict && todayCalories >= goal;
-
-  // --- LÓGICA DA BARRA QUEBRADA ---
-  // Se for Rígido E passou 50% da meta (ex: comeu 3000 de uma meta de 2000)
   const isBroken = isStrict && (todayCalories >= goal * 1.5);
+
+  // Cálculo da diferença de peso
+  const weightDiff = (weight && targetWeight) ? (parseFloat(weight) - parseFloat(targetWeight)).toFixed(1) : null;
 
   return (
     <ScrollView contentContainerStyle={styles.container}>
       
-      {/* BANNER MODO RÍGIDO */}
+      {/* BANNERS */}
       {showStrictBanner && (
-        <View style={[
-          styles.messageCard, 
-          // Se quebrou a barra, o banner fica preto (Luto/Desastre)
-          isBroken ? { backgroundColor: '#1f2937' } : (calorieStreak.status === 'bad' ? styles.messageBad : styles.messageGood)
-        ]}>
-          <Feather 
-            name={isBroken ? "zap-off" : (calorieStreak.status === 'bad' ? "alert-triangle" : "check-circle")} 
-            size={24} 
-            color="#fff" 
-          />
+        <View style={[styles.messageCard, isBroken ? { backgroundColor: '#1f2937' } : (calorieStreak.status === 'bad' ? styles.messageBad : styles.messageGood)]}>
+          <Feather name={isBroken ? "zap-off" : (calorieStreak.status === 'bad' ? "alert-triangle" : "check-circle")} size={24} color="#fff" />
           <View style={{flex: 1, marginLeft: 10}}>
-            <Text style={styles.messageTitle}>
-              {isBroken ? "SOCORRO! 😱" : (calorieStreak.status === 'bad' ? "Foco na meta!" : "Mandou bem!")}
-            </Text>
-            <Text style={styles.messageText}>
-              {isBroken 
-                ? "Você comeu tanto que QUEBROU a barra de progresso! Pare imediatamente!" 
-                : (calorieStreak.status === 'bad' 
-                    ? `Seja forte! Você está a ${calorieStreak.count} dia(s) fora de foco 👎`
-                    : `Boa, você conseguiu! Você está a ${calorieStreak.count} dia(s) focado(a).`
-                  )
-              }
-            </Text>
+            <Text style={styles.messageTitle}>{isBroken ? "SOCORRO! 😱" : (calorieStreak.status === 'bad' ? "Foco na meta!" : "Mandou bem!")}</Text>
+            <Text style={styles.messageText}>{isBroken ? "Você quebrou a barra de progresso!" : (calorieStreak.status === 'bad' ? `Você está a ${calorieStreak.count} dia(s) fora de foco 👎` : `Você está a ${calorieStreak.count} dia(s) focado(a).`)}</Text>
           </View>
         </View>
       )}
-
-      {/* BANNER MODO FLEXÍVEL */}
       {showFlexBanner && (
         <View style={[styles.messageCard, styles.messageGood]}>
           <Feather name="trending-up" size={24} color="#fff" />
           <View style={{flex: 1, marginLeft: 10}}>
             <Text style={styles.messageTitle}>Parabéns!</Text>
-            <Text style={styles.messageText}>Continue focado em sua dieta. Você está a {calorieStreak.count} dia(s) no foco.</Text>
+            <Text style={styles.messageText}>Continue focado. Você está a {calorieStreak.count} dia(s) no foco.</Text>
           </View>
         </View>
       )}
 
-      {/* --- ÁREA DA BARRA DE PROGRESSO --- */}
+      {/* BARRA DE PROGRESSO */}
       <View style={styles.goalCard}>
         <View style={styles.goalHeader}>
           <Text style={styles.goalTitle}>Consumo Diário</Text>
           <Text style={styles.goalValues}>{Math.round(todayCalories)} <Text style={{fontSize: 14, color: '#888'}}>/ {goal} kcal</Text></Text>
         </View>
-
         {isBroken ? (
-          // --- VISUAL QUEBRADO (EASTER EGG) ---
           <View style={styles.brokenContainer}>
-            {/* Pedaço Esquerdo */}
-            <View style={styles.brokenLeft}>
-               <LinearGradient colors={['#7f1d1d', '#b91c1c']} style={{flex: 1, borderRadius: 6}} />
-            </View>
-            {/* Explosão */}
+            <View style={styles.brokenLeft}><LinearGradient colors={['#7f1d1d', '#b91c1c']} style={{flex: 1, borderRadius: 6}} /></View>
             <Text style={styles.explosion}>💥</Text>
-            {/* Pedaço Direito */}
-            <View style={styles.brokenRight}>
-               <LinearGradient colors={['#b91c1c', '#7f1d1d']} style={{flex: 1, borderRadius: 6}} />
-            </View>
+            <View style={styles.brokenRight}><LinearGradient colors={['#b91c1c', '#7f1d1d']} style={{flex: 1, borderRadius: 6}} /></View>
           </View>
         ) : (
-          // --- VISUAL NORMAL ---
           <View style={styles.progressBarBackground}>
-            <LinearGradient 
-              colors={todayCalories > goal && isStrict ? ['#ef4444', '#b91c1c'] : ['#22c55e', '#16a34a']} 
-              start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} 
-              style={[styles.progressBarFill, { width: `${progressPercent}%` }]} 
-            />
+            <LinearGradient colors={todayCalories > goal && isStrict ? ['#ef4444', '#b91c1c'] : ['#22c55e', '#16a34a']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={[styles.progressBarFill, { width: `${progressPercent}%` }]} />
           </View>
         )}
-        
-        <Text style={[styles.goalSubtitle, todayCalories > goal && isStrict && {color: '#ef4444'}]}>
-          {todayCalories > goal ? `Excedeu ${Math.round(todayCalories - goal)} kcal` : `Restam ${Math.round(goal - todayCalories)} kcal`}
-        </Text>
+        <Text style={[styles.goalSubtitle, todayCalories > goal && isStrict && {color: '#ef4444'}]}>{todayCalories > goal ? `Excedeu ${Math.round(todayCalories - goal)} kcal` : `Restam ${Math.round(goal - todayCalories)} kcal`}</Text>
       </View>
 
+      {/* DADOS PESSOAIS */}
       <View style={styles.card}>
         <Text style={styles.cardTitle}>Configurações</Text>
         <Text style={styles.label}>Nome</Text>
         <TextInput style={styles.input} value={name} onChangeText={setName} placeholder="Seu nome" />
+
+        {/* Linha 1: Idade e Altura */}
         <View style={styles.row}>
           <View style={styles.halfInput}><Text style={styles.label}>Idade</Text><TextInput style={styles.input} value={age} onChangeText={setAge} keyboardType="numeric" /></View>
-          <View style={styles.halfInput}><Text style={styles.label}>Meta Kcal</Text><TextInput style={[styles.input, { borderColor: '#16a34a', color: '#16a34a', fontWeight: 'bold' }]} value={calorieGoal} onChangeText={setCalorieGoal} keyboardType="numeric" placeholder="2000" /></View>
-        </View>
-        <View style={styles.row}>
           <View style={styles.halfInput}><Text style={styles.label}>Altura (cm)</Text><TextInput style={styles.input} value={height} onChangeText={setHeight} keyboardType="numeric" /></View>
-          <View style={styles.halfInput}><Text style={styles.label}>Peso (kg)</Text><TextInput style={styles.input} value={weight} onChangeText={setWeight} keyboardType="numeric" /></View>
         </View>
+
+        {/* Linha 2: Peso Atual e Meta de Peso (NOVO) */}
+        <View style={styles.row}>
+          <View style={styles.halfInput}>
+            <Text style={styles.label}>Peso Atual (kg)</Text>
+            <TextInput style={styles.input} value={weight} onChangeText={setWeight} keyboardType="numeric" placeholder="Ex: 80" />
+          </View>
+          <View style={styles.halfInput}>
+            <Text style={styles.label}>Meta de Peso (kg)</Text>
+            <TextInput 
+              style={[styles.input, { borderColor: '#3b82f6', color: '#3b82f6', fontWeight: 'bold' }]} 
+              value={targetWeight} 
+              onChangeText={setTargetWeight} 
+              keyboardType="numeric" 
+              placeholder="Ex: 75" 
+            />
+          </View>
+        </View>
+
+        {/* Feedback visual da meta de peso */}
+        {weightDiff !== null && (
+          <View style={{ alignItems: 'center', marginBottom: 15, marginTop: -5 }}>
+            <Text style={{ color: '#666', fontSize: 12 }}>
+              {parseFloat(weightDiff) > 0 
+                ? `📉 Faltam perder ${weightDiff} kg para sua meta` 
+                : (parseFloat(weightDiff) < 0 
+                    ? `📈 Faltam ganhar ${Math.abs(weightDiff)} kg para sua meta` 
+                    : "🎉 Você atingiu sua meta de peso!")}
+            </Text>
+          </View>
+        )}
+
+        {/* Linha 3: Meta Kcal */}
+        <Text style={styles.label}>Meta Diária de Calorias</Text>
+        <TextInput style={[styles.input, { borderColor: '#16a34a', color: '#16a34a', fontWeight: 'bold' }]} value={calorieGoal} onChangeText={setCalorieGoal} keyboardType="numeric" placeholder="2000" />
+
         <View style={styles.switchRow}>
           <View style={{flex: 1}}><Text style={styles.switchTitle}>Modo Rígido</Text><Text style={styles.switchDesc}>Ative se sua meta for um limite máximo.</Text></View>
           <Switch value={isStrict} onValueChange={setIsStrict} trackColor={{ false: "#767577", true: "#ef4444" }} thumbColor={isStrict ? "#fff" : "#f4f3f4"} />
         </View>
       </View>
 
+      {/* RESULTADOS */}
       {bmi && (
         <View style={styles.resultsContainer}>
           <LinearGradient colors={['#f0fdf4', '#dcfce7']} style={[styles.resultCard, { borderColor: getBMIStatus(bmi).color }]}>
@@ -249,7 +250,6 @@ export default function ProfileScreen() {
 
       <View style={{ marginTop: 40, alignItems: 'center' }}>
         <TouchableOpacity style={styles.resetAllButton} onPress={handleResetApp}><Text style={styles.resetAllText}>Zerar Aplicativo (Reset de Fábrica)</Text></TouchableOpacity>
-        <Text style={{ marginTop: 5, color: '#9ca3af', fontSize: 10 }}>Versão 1.3.0 (Easter Egg Edition)</Text>
       </View>
     </ScrollView>
   );
@@ -271,13 +271,10 @@ const styles = StyleSheet.create({
   goalValues: { fontSize: 24, fontWeight: 'bold', color: '#16a34a' },
   progressBarBackground: { height: 12, backgroundColor: '#e5e7eb', borderRadius: 6, overflow: 'hidden', marginBottom: 8 },
   progressBarFill: { height: '100%', borderRadius: 6 },
-  
-  // ESTILOS DA BARRA QUEBRADA
   brokenContainer: { height: 30, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', marginBottom: 8 },
   brokenLeft: { width: '45%', height: 12, transform: [{ rotate: '10deg' }, { translateY: 5 }] },
   brokenRight: { width: '45%', height: 12, transform: [{ rotate: '-10deg' }, { translateY: 10 }] },
   explosion: { fontSize: 24, position: 'absolute', zIndex: 10 },
-
   goalSubtitle: { fontSize: 12, color: '#666', textAlign: 'right', fontStyle: 'italic' },
   card: { backgroundColor: '#fff', padding: 20, borderRadius: 16, elevation: 2, marginBottom: 20 },
   cardTitle: { fontSize: 18, fontWeight: 'bold', marginBottom: 15, color: '#333' },
