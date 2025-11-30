@@ -12,10 +12,7 @@ export default function ProfileScreen() {
   const [age, setAge] = useState('');
   const [weight, setWeight] = useState('');
   const [height, setHeight] = useState('');
-  
-  // NOVO CAMPO: Meta de Peso
   const [targetWeight, setTargetWeight] = useState(''); 
-  
   const [calorieGoal, setCalorieGoal] = useState('2000');
   const [isStrict, setIsStrict] = useState(false); 
   const [calorieStreak, setCalorieStreak] = useState({ status: 'good', count: 0 });
@@ -38,7 +35,7 @@ export default function ProfileScreen() {
         setHeight(data.height || '');
         setCalorieGoal(data.calorieGoal || '2000');
         setIsStrict(data.isStrict || false);
-        setTargetWeight(data.targetWeight || ''); // Carrega a meta de peso
+        setTargetWeight(data.targetWeight || ''); 
       }
     });
 
@@ -61,7 +58,6 @@ export default function ProfileScreen() {
     });
   }, [todayCalories, calorieGoal, isStrict]);
 
-  // Salva tudo, incluindo targetWeight
   useEffect(() => {
     if (name || age || weight || height || calorieGoal) {
       saveProfile({ name, age, weight, height, calorieGoal, isStrict, targetWeight });
@@ -104,14 +100,11 @@ export default function ProfileScreen() {
   const showStrictBanner = isStrict;
   const showFlexBanner = !isStrict && todayCalories >= goal;
   const isBroken = isStrict && (todayCalories >= goal * 1.5);
-
-  // Cálculo da diferença de peso
   const weightDiff = (weight && targetWeight) ? (parseFloat(weight) - parseFloat(targetWeight)).toFixed(1) : null;
 
   return (
     <ScrollView contentContainerStyle={styles.container}>
       
-      {/* BANNERS */}
       {showStrictBanner && (
         <View style={[styles.messageCard, isBroken ? { backgroundColor: '#1f2937' } : (calorieStreak.status === 'bad' ? styles.messageBad : styles.messageGood)]}>
           <Feather name={isBroken ? "zap-off" : (calorieStreak.status === 'bad' ? "alert-triangle" : "check-circle")} size={24} color="#fff" />
@@ -131,7 +124,6 @@ export default function ProfileScreen() {
         </View>
       )}
 
-      {/* BARRA DE PROGRESSO */}
       <View style={styles.goalCard}>
         <View style={styles.goalHeader}>
           <Text style={styles.goalTitle}>Consumo Diário</Text>
@@ -151,52 +143,37 @@ export default function ProfileScreen() {
         <Text style={[styles.goalSubtitle, todayCalories > goal && isStrict && {color: '#ef4444'}]}>{todayCalories > goal ? `Excedeu ${Math.round(todayCalories - goal)} kcal` : `Restam ${Math.round(goal - todayCalories)} kcal`}</Text>
       </View>
 
-      {/* DADOS PESSOAIS */}
       <View style={styles.card}>
         <Text style={styles.cardTitle}>Configurações</Text>
         <Text style={styles.label}>Nome</Text>
-        <TextInput style={styles.input} value={name} onChangeText={setName} placeholder="Seu nome" />
+        <TextInput style={styles.input} value={name} onChangeText={setName} placeholder="Seu nome" placeholderTextColor="#9ca3af" />
 
-        {/* Linha 1: Idade e Altura */}
         <View style={styles.row}>
-          <View style={styles.halfInput}><Text style={styles.label}>Idade</Text><TextInput style={styles.input} value={age} onChangeText={setAge} keyboardType="numeric" /></View>
-          <View style={styles.halfInput}><Text style={styles.label}>Altura (cm)</Text><TextInput style={styles.input} value={height} onChangeText={setHeight} keyboardType="numeric" /></View>
+          <View style={styles.halfInput}><Text style={styles.label}>Idade</Text><TextInput style={styles.input} value={age} onChangeText={setAge} keyboardType="numeric" placeholder="Anos" placeholderTextColor="#9ca3af" /></View>
+          <View style={styles.halfInput}><Text style={styles.label}>Altura (cm)</Text><TextInput style={styles.input} value={height} onChangeText={setHeight} keyboardType="numeric" placeholder="175" placeholderTextColor="#9ca3af" /></View>
         </View>
 
-        {/* Linha 2: Peso Atual e Meta de Peso (NOVO) */}
         <View style={styles.row}>
           <View style={styles.halfInput}>
             <Text style={styles.label}>Peso Atual (kg)</Text>
-            <TextInput style={styles.input} value={weight} onChangeText={setWeight} keyboardType="numeric" placeholder="Ex: 80" />
+            <TextInput style={styles.input} value={weight} onChangeText={setWeight} keyboardType="numeric" placeholder="Ex: 80" placeholderTextColor="#9ca3af" />
           </View>
           <View style={styles.halfInput}>
             <Text style={styles.label}>Meta de Peso (kg)</Text>
-            <TextInput 
-              style={[styles.input, { borderColor: '#3b82f6', color: '#3b82f6', fontWeight: 'bold' }]} 
-              value={targetWeight} 
-              onChangeText={setTargetWeight} 
-              keyboardType="numeric" 
-              placeholder="Ex: 75" 
-            />
+            <TextInput style={[styles.input, { borderColor: '#3b82f6', color: '#3b82f6', fontWeight: 'bold' }]} value={targetWeight} onChangeText={setTargetWeight} keyboardType="numeric" placeholder="Ex: 75" placeholderTextColor="#9ca3af" />
           </View>
         </View>
 
-        {/* Feedback visual da meta de peso */}
         {weightDiff !== null && (
           <View style={{ alignItems: 'center', marginBottom: 15, marginTop: -5 }}>
             <Text style={{ color: '#666', fontSize: 12 }}>
-              {parseFloat(weightDiff) > 0 
-                ? `📉 Faltam perder ${weightDiff} kg para sua meta` 
-                : (parseFloat(weightDiff) < 0 
-                    ? `📈 Faltam ganhar ${Math.abs(weightDiff)} kg para sua meta` 
-                    : "🎉 Você atingiu sua meta de peso!")}
+              {parseFloat(weightDiff) > 0 ? `📉 Faltam perder ${weightDiff} kg` : (parseFloat(weightDiff) < 0 ? `📈 Faltam ganhar ${Math.abs(weightDiff)} kg` : "🎉 Meta atingida!")}
             </Text>
           </View>
         )}
 
-        {/* Linha 3: Meta Kcal */}
         <Text style={styles.label}>Meta Diária de Calorias</Text>
-        <TextInput style={[styles.input, { borderColor: '#16a34a', color: '#16a34a', fontWeight: 'bold' }]} value={calorieGoal} onChangeText={setCalorieGoal} keyboardType="numeric" placeholder="2000" />
+        <TextInput style={[styles.input, { borderColor: '#16a34a', color: '#16a34a', fontWeight: 'bold' }]} value={calorieGoal} onChangeText={setCalorieGoal} keyboardType="numeric" placeholder="2000" placeholderTextColor="#9ca3af" />
 
         <View style={styles.switchRow}>
           <View style={{flex: 1}}><Text style={styles.switchTitle}>Modo Rígido</Text><Text style={styles.switchDesc}>Ative se sua meta for um limite máximo.</Text></View>
@@ -204,7 +181,6 @@ export default function ProfileScreen() {
         </View>
       </View>
 
-      {/* RESULTADOS */}
       {bmi && (
         <View style={styles.resultsContainer}>
           <LinearGradient colors={['#f0fdf4', '#dcfce7']} style={[styles.resultCard, { borderColor: getBMIStatus(bmi).color }]}>

@@ -6,7 +6,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { Feather } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import { initialFoods, categories } from '../data/foodList';
-import { addCustomFood, getCustomFoods, saveDailyLog, getDayLog, getTodayKey } from '../services/db';
+import { addCustomFood, getCustomFoods, saveDailyLog, getDayLog, getTodayKey, addMealToDay, deleteMealFromHistory } from '../services/db';
 
 export default function MealsScreen() {
   const [mode, setMode] = useState('list');
@@ -64,16 +64,6 @@ export default function MealsScreen() {
     return t;
   };
 
-  const persistChanges = async (updatedList) => {
-    setTodaysMeals(updatedList);
-    const newTotals = calculateTotals(updatedList);
-    await saveDailyLog(getTodayKey(), { 
-      meals: updatedList, 
-      totalCalories: newTotals.kcal 
-    });
-  };
-
-  // --- AQUI ESTAVA FALTANDO! RECOLOQUEI A LÓGICA DE FILTRO ---
   const allFoods = [
     ...initialFoods, 
     ...customFoods.map(f => ({...f, unit_weight: f.unit_weight || 100}))
@@ -84,7 +74,6 @@ export default function MealsScreen() {
     const matchCat = selectedCategory === 'all' || item.category === selectedCategory;
     return matchName && matchCat;
   });
-  // -----------------------------------------------------------
 
   const handleTakeMealPhoto = async () => {
     const permission = await ImagePicker.requestCameraPermissionsAsync();
@@ -109,7 +98,10 @@ export default function MealsScreen() {
     
     let multiplier = 0;
     let weightVal = 0;
-    let unitLabel = selectedItem.category === 'Bebida' ? 'ml' : 'g';
+    
+    // --- CORREÇÃO AQUI: DETECTA SE É BEBIDA ---
+    const isDrink = selectedItem.category === 'Bebida';
+    const unitLabel = isDrink ? 'ml' : 'g';
 
     if (measureType === 'g') {
       multiplier = parseFloat(inputValue) / 100;
@@ -129,7 +121,7 @@ export default function MealsScreen() {
       fat: Math.round((selectedItem.fat || 0) * multiplier),
       sugar: Math.round((selectedItem.sugar || 0) * multiplier),
       weightVal: weightVal,
-      weightLabel: `${weightVal}${unitLabel}`,
+      weightLabel: `${weightVal}${unitLabel}`, // Usa ml ou g
       image: mealPhoto,
     };
 
@@ -151,19 +143,21 @@ export default function MealsScreen() {
     }
   };
 
-  const saveSingleItem = async (item) => {
+  const saveSingleItem = (item) => {
     const newMeal = {
       ...item,
-      id: Date.now().toString(),
+      id: Date.now().toString() + Math.random(),
       weight: item.weightLabel,
       time: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
     };
-    const updated = [newMeal, ...todaysMeals];
-    await persistChanges(updated);
-    finishAndClean();
+    addMealToDay(newMeal, (updatedList, newTotal) => {
+      setTodaysMeals(updatedList);
+      calculateTotals(updatedList);
+      finishAndClean();
+    });
   };
 
-  const savePlateGroup = async () => {
+  const savePlateGroup = () => {
     if (!plateName.trim()) {
       Alert.alert("Nome vazio", "Dê um nome para seu prato.");
       return;
@@ -182,7 +176,7 @@ export default function MealsScreen() {
     const finalImage = platePhoto || currentPlate.find(i => i.image)?.image || null;
 
     const newGroupMeal = {
-      id: Date.now().toString(),
+      id: Date.now().toString() + Math.random(),
       name: plateName,
       description: description,
       calories: totalStats.calories,
@@ -196,11 +190,12 @@ export default function MealsScreen() {
       time: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
     };
 
-    const updated = [newGroupMeal, ...todaysMeals];
-    await persistChanges(updated);
-    
-    setPlateModalVisible(false);
-    finishAndClean();
+    addMealToDay(newGroupMeal, (updatedList, newTotal) => {
+      setTodaysMeals(updatedList);
+      calculateTotals(updatedList);
+      setPlateModalVisible(false);
+      finishAndClean();
+    });
   };
 
   const finishAndClean = () => {
@@ -217,9 +212,11 @@ export default function MealsScreen() {
     if (newPlate.length === 0) setIsPlateMode(false);
   };
 
-  const deleteMeal = async (id) => {
-    const updated = todaysMeals.filter(m => m.id !== id);
-    await persistChanges(updated);
+  const deleteMeal = (id) => {
+    deleteMealFromHistory(id, (updatedList, newTotal) => {
+      setTodaysMeals(updatedList);
+      calculateTotals(updatedList);
+    });
   };
 
   const handleCreateFood = () => {
@@ -238,6 +235,10 @@ export default function MealsScreen() {
 
   const handleClosePanel = () => { setSelectedItem(null); setInputValue(''); setMeasureType('g'); setMealPhoto(null); Keyboard.dismiss(); };
   const plateTotal = currentPlate.reduce((acc, curr) => acc + curr.calories, 0);
+
+  // --- CHECAGEM SE É BEBIDA ---
+  const isSelectedDrink = selectedItem?.category === 'Bebida';
+  const isNewDrink = newCat === 'Bebida';
 
   return (
     <View style={styles.container}>
@@ -262,7 +263,6 @@ export default function MealsScreen() {
             <Feather name="plus-circle" size={24} color="#fff" />
             <Text style={styles.btnTextMain}>Montar Refeição</Text>
           </TouchableOpacity>
-
           <FlatList
             data={todaysMeals}
             keyExtractor={item => item.id}
@@ -322,7 +322,7 @@ export default function MealsScreen() {
                 Alert.alert("Cancelar?", "Sair vai limpar o prato atual.", [{text: "Ficar", style: "cancel"}, {text: "Sair", style: "destructive", onPress: () => { setCurrentPlate([]); setIsPlateMode(false); setMode('list'); }}]);
               } else { setMode('list'); }
             }} style={{ padding: 10 }}><Feather name="arrow-left" size={24} color="#333" /></TouchableOpacity>
-            <TextInput style={styles.searchInput} placeholder="Buscar..." value={searchText} onChangeText={setSearchText} autoFocus={!selectedItem} />
+            <TextInput style={styles.searchInput} placeholder="Buscar..." value={searchText} onChangeText={setSearchText} autoFocus={!selectedItem} placeholderTextColor="#9ca3af" />
           </View>
           
           <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 10, maxHeight: 50 }}>
@@ -336,7 +336,7 @@ export default function MealsScreen() {
             renderItem={({ item }) => (
               <TouchableOpacity style={[styles.foodRow, selectedItem?.name === item.name && styles.foodRowSelected]} onPress={() => { setSelectedItem(item); setMeasureType(item.unit_weight ? 'un' : 'g'); }}>
                 <Text style={styles.foodName}>{item.name}</Text>
-                <Text style={styles.foodInfo}>{Math.round(item.calories)} kcal • C:{item.carbs||0} P:{item.protein||0} F:{item.fat||0}</Text>
+                <Text style={styles.foodInfo}>{Math.round(item.calories)} kcal/100{item.category === 'Bebida' ? 'ml' : 'g'}</Text>
               </TouchableOpacity>
             )}
           />
@@ -347,12 +347,28 @@ export default function MealsScreen() {
                 <Text style={styles.panelTitle}>{selectedItem.name}</Text>
                 <TouchableOpacity onPress={handleClosePanel} style={styles.closeBtn}><Feather name="x" size={24} color="#999" /></TouchableOpacity>
               </View>
+              
+              {/* --- SELETOR DE MEDIDA DINÂMICO --- */}
               <View style={styles.toggleContainer}>
-                <TouchableOpacity style={[styles.toggleBtn, measureType === 'g' && styles.toggleBtnActive]} onPress={() => setMeasureType('g')}><Text style={[styles.toggleText, measureType === 'g' && styles.toggleTextActive]}>Gramas (g)</Text></TouchableOpacity>
-                <TouchableOpacity style={[styles.toggleBtn, measureType === 'un' && styles.toggleBtnActive]} onPress={() => setMeasureType('un')}><Text style={[styles.toggleText, measureType === 'un' && styles.toggleTextActive]}>Unidade (un)</Text></TouchableOpacity>
+                <TouchableOpacity style={[styles.toggleBtn, measureType === 'g' && styles.toggleBtnActive]} onPress={() => setMeasureType('g')}>
+                  <Text style={[styles.toggleText, measureType === 'g' && styles.toggleTextActive]}>
+                    {isSelectedDrink ? 'Mililitros (ml)' : 'Gramas (g)'}
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={[styles.toggleBtn, measureType === 'un' && styles.toggleBtnActive]} onPress={() => setMeasureType('un')}>
+                  <Text style={[styles.toggleText, measureType === 'un' && styles.toggleTextActive]}>Unidade (un)</Text>
+                </TouchableOpacity>
               </View>
+
               <View style={styles.inputRow}>
-                <TextInput style={[styles.input, { flex: 1 }]} placeholder={measureType === 'g' ? "Qtd" : "1"} keyboardType="numeric" value={inputValue} onChangeText={setInputValue} />
+                <TextInput 
+                  style={[styles.input, { flex: 1 }]} 
+                  placeholder={measureType === 'g' ? (isSelectedDrink ? "Vol" : "Peso") : "Qtd"} 
+                  placeholderTextColor="#9ca3af"
+                  keyboardType="numeric" 
+                  value={inputValue} 
+                  onChangeText={setInputValue} 
+                />
                 <TouchableOpacity style={[styles.camBtn, mealPhoto && {backgroundColor: '#dcfce7', borderColor: '#16a34a'}]} onPress={handleTakeMealPhoto}>
                   {mealPhoto ? <Image source={{ uri: mealPhoto }} style={{width: 24, height: 24, borderRadius: 4}} /> : <Feather name="camera" size={24} color={mealPhoto ? '#16a34a' : '#666'} />}
                 </TouchableOpacity>
@@ -360,18 +376,19 @@ export default function MealsScreen() {
               </View>
             </View>
           ) : (
-            <TouchableOpacity style={styles.btnCreate} onPress={() => setMode('create')}><Text style={{ color: '#16a34a', fontWeight: 'bold' }}>Não achou? Criar Novo</Text></TouchableOpacity>
+            <TouchableOpacity style={styles.btnCreate} onPress={() => setMode('create')}>
+              <Text style={{ color: '#16a34a', fontWeight: 'bold' }}>Não achou? Criar Novo</Text>
+            </TouchableOpacity>
           )}
         </View>
       )}
 
-      {/* MODAL PARA NOMEAR O PRATO */}
       <Modal visible={plateModalVisible} transparent={true} animationType="fade">
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
             <Text style={styles.modalTitle}>Finalizar Prato</Text>
             <Text style={styles.modalSub}>Dê um nome para sua refeição.</Text>
-            <TextInput style={styles.modalInput} placeholder="Ex: Almoço" value={plateName} onChangeText={setPlateName} autoFocus />
+            <TextInput style={styles.modalInput} placeholder="Ex: Almoço" placeholderTextColor="#9ca3af" value={plateName} onChangeText={setPlateName} autoFocus />
             <TouchableOpacity style={[styles.modalCamBtn, platePhoto && {backgroundColor: '#dcfce7', borderColor: '#16a34a'}]} onPress={handleTakePlatePhoto}>
               {platePhoto ? <><Image source={{ uri: platePhoto }} style={styles.modalThumb} /><Text style={[styles.modalCamText, {color: '#16a34a'}]}>Foto registrada!</Text></> : <><Feather name="camera" size={24} color="#666" /><Text style={styles.modalCamText}>Foto do prato completo (Opcional)</Text></>}
             </TouchableOpacity>
@@ -387,27 +404,47 @@ export default function MealsScreen() {
         <ScrollView style={{ flex: 1 }}>
           <View style={styles.card}>
             <Text style={styles.cardTitle}>Novo Alimento</Text>
-            <TextInput style={styles.input} placeholder="Nome (ex: Pizza)" value={newName} onChangeText={setNewName} />
+            <TextInput style={styles.input} placeholder="Nome (ex: Pizza)" placeholderTextColor="#9ca3af" value={newName} onChangeText={setNewName} />
+            
             <View style={styles.toggleContainer}>
-              <TouchableOpacity style={[styles.toggleBtn, createType === '100g' && styles.toggleBtnActive]} onPress={() => setCreateType('100g')}><Text style={[styles.toggleText, createType === '100g' && styles.toggleTextActive]}>Por 100g</Text></TouchableOpacity>
+              <TouchableOpacity style={[styles.toggleBtn, createType === '100g' && styles.toggleBtnActive]} onPress={() => setCreateType('100g')}>
+                <Text style={[styles.toggleText, createType === '100g' && styles.toggleTextActive]}>
+                  {isNewDrink ? 'Por 100ml' : 'Por 100g'}
+                </Text>
+              </TouchableOpacity>
               <TouchableOpacity style={[styles.toggleBtn, createType === 'un' && styles.toggleBtnActive]} onPress={() => setCreateType('un')}><Text style={[styles.toggleText, createType === 'un' && styles.toggleTextActive]}>Por Unidade</Text></TouchableOpacity>
             </View>
+
             {createType === '100g' ? (
-              <><Text style={styles.label}>Calorias em 100g</Text><TextInput style={styles.input} placeholder="Kcal" keyboardType="numeric" value={newKcal} onChangeText={setNewKcal} /></>
+              <><Text style={styles.label}>Calorias (100{isNewDrink?'ml':'g'})</Text><TextInput style={styles.input} placeholder="Kcal" placeholderTextColor="#9ca3af" keyboardType="numeric" value={newKcal} onChangeText={setNewKcal} /></>
             ) : (
-              <><Text style={styles.label}>Calorias em 1 UN</Text><TextInput style={styles.input} placeholder="Kcal" keyboardType="numeric" value={newKcal} onChangeText={setNewKcal} /><Text style={styles.label}>Peso de 1 UN (g)</Text><TextInput style={styles.input} placeholder="Gramas" keyboardType="numeric" value={newUnitWeight} onChangeText={setNewUnitWeight} /></>
+              <><Text style={styles.label}>Calorias (1 UN)</Text><TextInput style={styles.input} placeholder="Kcal" placeholderTextColor="#9ca3af" keyboardType="numeric" value={newKcal} onChangeText={setNewKcal} /><Text style={styles.label}>Peso de 1 UN ({isNewDrink?'ml':'g'})</Text><TextInput style={styles.input} placeholder={isNewDrink?"ml":"g"} placeholderTextColor="#9ca3af" keyboardType="numeric" value={newUnitWeight} onChangeText={setNewUnitWeight} /></>
             )}
+            
             <Text style={styles.label}>Macronutrientes (g)</Text>
             <View style={styles.row3}>
-              <TextInput style={[styles.input, {flex:1}]} placeholder="Carb" keyboardType="numeric" value={newCarbs} onChangeText={setNewCarbs} />
-              <TextInput style={[styles.input, {flex:1, marginHorizontal:5}]} placeholder="Prot" keyboardType="numeric" value={newProt} onChangeText={setNewProt} />
-              <TextInput style={[styles.input, {flex:1}]} placeholder="Gord" keyboardType="numeric" value={newFat} onChangeText={setNewFat} />
+              <TextInput style={[styles.input, {flex:1}]} placeholder="Carb" placeholderTextColor="#9ca3af" keyboardType="numeric" value={newCarbs} onChangeText={setNewCarbs} />
+              <TextInput style={[styles.input, {flex:1, marginHorizontal:5}]} placeholder="Prot" placeholderTextColor="#9ca3af" keyboardType="numeric" value={newProt} onChangeText={setNewProt} />
+              <TextInput style={[styles.input, {flex:1}]} placeholder="Gord" placeholderTextColor="#9ca3af" keyboardType="numeric" value={newFat} onChangeText={setNewFat} />
             </View>
             <View style={styles.row3}>
-               <TextInput style={[styles.input, {flex:1, borderColor: '#fca5a5'}]} placeholder="Açúcar (g)" keyboardType="numeric" value={newSugar} onChangeText={setNewSugar} />
+               <TextInput style={[styles.input, {flex:1, borderColor: '#fca5a5'}]} placeholder="Açúcar" placeholderTextColor="#9ca3af" keyboardType="numeric" value={newSugar} onChangeText={setNewSugar} />
                <View style={{flex: 2}} />
             </View>
-            <View style={styles.catGrid}>{categories.filter(c => c.id !== 'all').map(cat => (<TouchableOpacity key={cat.id} style={[styles.catChipSmall, newCat === cat.id && styles.catChipActive]} onPress={() => setNewCat(cat.id)}><Text style={[styles.catTextSmall, newCat === cat.id && { color: '#fff' }]}>{cat.name}</Text></TouchableOpacity>))}</View>
+            
+            {/* SELEÇÃO DE CATEGORIA PARA MUDAR OS RÓTULOS */}
+            <View style={styles.catGrid}>
+              {categories.filter(c => c.id !== 'all').map(cat => (
+                <TouchableOpacity 
+                  key={cat.id} 
+                  style={[styles.catChipSmall, newCat === cat.id && styles.catChipActive]} 
+                  onPress={() => setNewCat(cat.id)}
+                >
+                  <Text style={[styles.catTextSmall, newCat === cat.id && { color: '#fff' }]}>{cat.name}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+            
             <View style={styles.btnRow}><TouchableOpacity style={styles.btnCancel} onPress={() => setMode('search')}><Text>Cancelar</Text></TouchableOpacity><TouchableOpacity style={styles.btnSave} onPress={handleCreateFood}><Text style={{ color: '#fff' }}>Salvar</Text></TouchableOpacity></View>
           </View>
         </ScrollView>

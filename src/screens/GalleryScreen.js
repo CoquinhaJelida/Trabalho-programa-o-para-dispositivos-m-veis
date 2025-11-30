@@ -1,26 +1,30 @@
 import React, { useState, useEffect } from 'react';
 import { 
-  View, Text, TouchableOpacity, StyleSheet, Image, ScrollView, Alert, FlatList, Modal, TextInput 
+  View, Text, TouchableOpacity, StyleSheet, Image, ScrollView, Alert, FlatList, Modal, TextInput, Dimensions 
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Feather } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
-// Importação de todas as funções necessárias do banco
 import { savePhotoLog, getGallery, deletePhoto, getTodayKey, getProfile, getHistory, deleteMealFromHistory } from '../services/db';
+
+const { width } = Dimensions.get('window');
 
 export default function GalleryScreen() {
   const [activeTab, setActiveTab] = useState('body'); 
   const [gallery, setGallery] = useState({});
   const [mealHistory, setMealHistory] = useState({});
   
-  // selectedImage guarda TUDO sobre a foto clicada
   const [selectedImage, setSelectedImage] = useState(null);
+  const [compareImage, setCompareImage] = useState(null);
+  const [isPickingCompare, setIsPickingCompare] = useState(false);
   
+  // NOVO: Controle de redimensionamento (contain = ver inteira / cover = preencher)
+  const [resizeMode, setResizeMode] = useState('contain'); 
+
   const [modalVisible, setModalVisible] = useState(false);
   const [tempPhotoUri, setTempPhotoUri] = useState(null);
   const [weightInput, setWeightInput] = useState('');
 
-  // Recarrega os dados ao entrar ou mudar de aba
   useEffect(() => {
     loadData();
   }, [activeTab]);
@@ -74,30 +78,49 @@ export default function GalleryScreen() {
 
   const handleDeleteCurrent = () => {
     if (!selectedImage) return;
-
     Alert.alert(
       "Excluir", 
-      selectedImage.type === 'meal' ? "Isso apagará o registro da refeição. Confirmar?" : "Apagar esta foto de evolução?",
+      selectedImage.type === 'meal' ? "Apagar refeição?" : "Apagar foto?",
       [
         { text: "Cancelar", style: "cancel" },
         { 
           text: "Apagar", 
           style: "destructive", 
           onPress: async () => {
-            if (selectedImage.type === 'body') {
-              await deletePhoto(selectedImage.date, selectedImage.id, setGallery);
-            } else if (selectedImage.type === 'meal') {
-              await deleteMealFromHistory(selectedImage.date, selectedImage.id, () => getHistory(setMealHistory));
-            }
-            setSelectedImage(null); 
+            if (selectedImage.type === 'body') await deletePhoto(selectedImage.date, selectedImage.id, setGallery);
+            else await deleteMealFromHistory(selectedImage.date, selectedImage.id, () => getHistory(setMealHistory));
+            handleCloseZoom();
           } 
         }
       ]
     );
   };
 
+  const handleCloseZoom = () => {
+    setSelectedImage(null);
+    setCompareImage(null);
+    setIsPickingCompare(false);
+    setResizeMode('contain'); // Reseta para o modo padrão
+  };
+
+  // Toggle entre Ajustar (ver tudo) e Preencher (zoom)
+  const toggleResizeMode = () => {
+    setResizeMode(prev => prev === 'contain' ? 'cover' : 'contain');
+  };
+
+  const formatDate = (dateStr) => dateStr.split('-').reverse().join('/');
+
+  const getAllBodyPhotos = () => {
+    const allPhotos = [];
+    Object.keys(gallery).sort().reverse().forEach(date => {
+      gallery[date].forEach(photo => {
+        allPhotos.push({ ...photo, date });
+      });
+    });
+    return allPhotos;
+  };
+
   const bodyDates = Object.keys(gallery).sort().reverse();
-  
   const mealDates = Object.keys(mealHistory).filter(date => {
     const day = mealHistory[date];
     return day.meals && day.meals.some(m => m.image);
@@ -105,8 +128,6 @@ export default function GalleryScreen() {
 
   return (
     <View style={styles.container}>
-      
-      {/* ABAS */}
       <View style={styles.tabContainer}>
         <TouchableOpacity onPress={() => setActiveTab('body')} style={[styles.tabBtn, activeTab === 'body' && styles.tabBtnActive]}>
           <Text style={[styles.tabText, activeTab === 'body' && styles.tabTextActive]}>Meu Corpo</Text>
@@ -116,7 +137,6 @@ export default function GalleryScreen() {
         </TouchableOpacity>
       </View>
 
-      {/* --- ABA CORPO --- */}
       {activeTab === 'body' && (
         <>
           <TouchableOpacity style={styles.btnAdd} onPress={handleAddBodyPhoto}>
@@ -135,22 +155,15 @@ export default function GalleryScreen() {
               <View style={styles.dateSection}>
                 <View style={styles.dateHeader}>
                   <Feather name="calendar" size={16} color="#7c3aed" />
-                  <Text style={styles.dateText}>{date.split('-').reverse().join('/')}</Text>
+                  <Text style={styles.dateText}>{formatDate(date)}</Text>
                 </View>
                 <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingRight: 20 }}>
-                  {gallery[date].map((item, index) => {
-                    const uri = item.uri || item; const weight = item.weight || null; const id = item.id || item;
-                    return (
-                      <TouchableOpacity 
-                        key={index} 
-                        onPress={() => setSelectedImage({ uri, id, date, weight, type: 'body' })} 
-                        style={styles.cardWrapper}
-                      >
-                        <Image source={{ uri }} style={styles.thumbnailBody} />
-                        {weight && <View style={styles.weightBadge}><Text style={styles.weightText}>{weight}kg</Text></View>}
-                      </TouchableOpacity>
-                    );
-                  })}
+                  {gallery[date].map((item, index) => (
+                    <TouchableOpacity key={index} onPress={() => setSelectedImage({ uri: item.uri || item, id: item.id||item, date, weight: item.weight, type: 'body' })} style={styles.cardWrapper}>
+                      <Image source={{ uri: item.uri || item }} style={styles.thumbnailBody} />
+                      {(item.weight) && <View style={styles.weightBadge}><Text style={styles.weightText}>{item.weight}kg</Text></View>}
+                    </TouchableOpacity>
+                  ))}
                 </ScrollView>
               </View>
             )}
@@ -158,7 +171,6 @@ export default function GalleryScreen() {
         </>
       )}
 
-      {/* --- ABA REFEIÇÕES --- */}
       {activeTab === 'meals' && (
         <FlatList
           data={mealDates}
@@ -169,32 +181,22 @@ export default function GalleryScreen() {
             <View style={styles.dateSection}>
               <View style={styles.dateHeader}>
                 <Feather name="calendar" size={16} color="#16a34a" />
-                <Text style={styles.dateText}>{date.split('-').reverse().join('/')}</Text>
+                <Text style={styles.dateText}>{formatDate(date)}</Text>
               </View>
               <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingRight: 20 }}>
-                {mealHistory[date].meals
-                  .filter(m => m.image) 
-                  .map((meal, index) => (
-                    <TouchableOpacity 
-                      key={index} 
-                      onPress={() => setSelectedImage({ uri: meal.image, id: meal.id, date: date, type: 'meal', data: meal })} 
-                      style={styles.mealCard}
-                    >
-                      <Image source={{ uri: meal.image }} style={styles.thumbnailMeal} />
-                      <View style={styles.mealInfo}>
-                        <Text style={styles.mealName} numberOfLines={1}>{meal.name}</Text>
-                        <Text style={styles.mealCal}>{meal.calories} kcal</Text>
-                      </View>
-                    </TouchableOpacity>
-                  ))
-                }
+                {mealHistory[date].meals.filter(m => m.image).map((meal, index) => (
+                  <TouchableOpacity key={index} onPress={() => setSelectedImage({ uri: meal.image, id: meal.id, date, type: 'meal', data: meal })} style={styles.mealCard}>
+                    <Image source={{ uri: meal.image }} style={styles.thumbnailMeal} />
+                    <View style={styles.mealInfo}><Text style={styles.mealName} numberOfLines={1}>{meal.name}</Text><Text style={styles.mealCal}>{meal.calories} kcal</Text></View>
+                  </TouchableOpacity>
+                ))}
               </ScrollView>
             </View>
           )}
         />
       )}
 
-      {/* MODAL PESO (CORPO) */}
+      {/* MODAL PESO */}
       <Modal visible={modalVisible} transparent={true} animationType="slide">
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
@@ -209,70 +211,87 @@ export default function GalleryScreen() {
         </View>
       </Modal>
 
-      {/* --- MODAL DE ZOOM COM DETALHES --- */}
+      {/* MODAL DE ESCOLHA (COMPARAR) */}
+      <Modal visible={isPickingCompare} transparent={true} animationType="slide">
+        <View style={styles.modalOverlay}>
+          <View style={styles.pickerContent}>
+            <Text style={styles.pickerTitle}>Escolha para comparar</Text>
+            <FlatList 
+              data={getAllBodyPhotos()}
+              keyExtractor={(item) => item.id}
+              numColumns={3}
+              renderItem={({item}) => (
+                <TouchableOpacity style={styles.pickerItem} onPress={() => { setCompareImage(item); setIsPickingCompare(false); }}>
+                   <Image source={{uri: item.uri || item}} style={styles.pickerThumb} />
+                   <Text style={styles.pickerDate}>{formatDate(item.date)}</Text>
+                </TouchableOpacity>
+              )}
+            />
+            <TouchableOpacity style={styles.btnCancelPicker} onPress={() => setIsPickingCompare(false)}><Text style={styles.btnCancelText}>Cancelar</Text></TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      {/* MODAL ZOOM / COMPARAÇÃO */}
       <Modal visible={selectedImage !== null} transparent={true} animationType="fade">
         <View style={styles.zoomContainer}>
+          <TouchableOpacity style={styles.closeBtn} onPress={handleCloseZoom}><Feather name="x" size={28} color="#fff" /></TouchableOpacity>
           
-          <TouchableOpacity style={styles.closeBtn} onPress={() => setSelectedImage(null)}>
-            <Feather name="x" size={28} color="#fff" />
-          </TouchableOpacity>
+          {!compareImage && (
+            <TouchableOpacity style={styles.deleteBtn} onPress={handleDeleteCurrent}><Feather name="trash-2" size={28} color="#ef4444" /></TouchableOpacity>
+          )}
 
-          <TouchableOpacity style={styles.deleteBtn} onPress={handleDeleteCurrent}>
-            <Feather name="trash-2" size={28} color="#ef4444" />
-          </TouchableOpacity>
-
-          {selectedImage && (
-            <>
-              <Image source={{ uri: selectedImage.uri }} style={styles.fullImage} resizeMode="contain" />
+          {compareImage ? (
+            <View style={styles.compareContainer}>
+              {/* FOTO 1 */}
+              <View style={styles.compareHalf}>
+                <Image source={{ uri: selectedImage.uri }} style={styles.compareImage} resizeMode={resizeMode} />
+                <View style={styles.compareLabel}><Text style={styles.compareText}>{formatDate(selectedImage.date)}</Text><Text style={styles.compareSub}>{selectedImage.weight} kg</Text></View>
+              </View>
+              <View style={styles.compareDivider} />
+              {/* FOTO 2 */}
+              <View style={styles.compareHalf}>
+                <Image source={{ uri: compareImage.uri || compareImage }} style={styles.compareImage} resizeMode={resizeMode} />
+                <View style={styles.compareLabel}><Text style={styles.compareText}>{formatDate(compareImage.date)}</Text><Text style={styles.compareSub}>{compareImage.weight} kg</Text></View>
+              </View>
               
-              {/* PAINEL DE INFORMAÇÕES DE REFEIÇÃO */}
-              {selectedImage.type === 'meal' && selectedImage.data && (
-                <View style={styles.infoPanel}>
-                  <Text style={styles.infoTitle}>{selectedImage.data.name}</Text>
-                  
-                  {/* SEÇÃO DA DESCRIÇÃO (Ingredientes do Prato) */}
-                  {selectedImage.data.description && (
-                    <Text style={styles.infoDesc}>
-                      {selectedImage.data.description}
-                    </Text>
-                  )}
+              {/* BOTÃO DE AJUSTE DE IMAGEM */}
+              <TouchableOpacity style={styles.resizeBtn} onPress={toggleResizeMode}>
+                <Feather name={resizeMode === 'contain' ? 'maximize' : 'minimize'} size={20} color="#fff" />
+                <Text style={{color:'#fff', marginLeft:5, fontWeight:'bold'}}>
+                  {resizeMode === 'contain' ? 'Preencher' : 'Ajustar'}
+                </Text>
+              </TouchableOpacity>
 
-                  <Text style={styles.infoWeight}>{selectedImage.data.weight}</Text>
-                  
-                  <View style={styles.infoRow}>
-                    <View style={styles.infoItem}>
-                      <Text style={styles.infoLabel}>Kcal</Text>
-                      <Text style={styles.infoValue}>{selectedImage.data.calories}</Text>
-                    </View>
-                    <View style={styles.infoDivider} />
-                    <View style={styles.infoItem}>
-                      <Text style={styles.infoLabel}>Carb</Text>
-                      <Text style={styles.infoValue}>{selectedImage.data.carbs || 0}g</Text>
-                    </View>
-                    <View style={styles.infoItem}>
-                      <Text style={styles.infoLabel}>Prot</Text>
-                      <Text style={styles.infoValue}>{selectedImage.data.protein || 0}g</Text>
-                    </View>
-                    <View style={styles.infoItem}>
-                      <Text style={styles.infoLabel}>Gord</Text>
-                      <Text style={styles.infoValue}>{selectedImage.data.fat || 0}g</Text>
-                    </View>
-                    <View style={styles.infoItem}>
-                      <Text style={styles.infoLabel}>Açúcar</Text>
-                      <Text style={[styles.infoValue, {color: '#fca5a5'}]}>{selectedImage.data.sugar || 0}g</Text>
+              <TouchableOpacity style={styles.stopCompareBtn} onPress={() => setCompareImage(null)}><Text style={{color:'#fff', fontWeight:'bold'}}>Fechar Comparação</Text></TouchableOpacity>
+            </View>
+          ) : (
+            selectedImage && (
+              <>
+                <Image source={{ uri: selectedImage.uri }} style={styles.fullImage} resizeMode="contain" />
+                {selectedImage.type === 'body' && (
+                  <TouchableOpacity style={styles.compareBtn} onPress={() => setIsPickingCompare(true)}>
+                    <Feather name="columns" size={20} color="#fff" />
+                    <Text style={styles.compareBtnText}>Comparar</Text>
+                  </TouchableOpacity>
+                )}
+                {selectedImage.type === 'meal' && selectedImage.data && (
+                  <View style={styles.infoPanel}>
+                    <Text style={styles.infoTitle}>{selectedImage.data.name}</Text>
+                    {selectedImage.data.description && <Text style={styles.infoDesc}>{selectedImage.data.description}</Text>}
+                    <Text style={styles.infoWeight}>{selectedImage.data.weight}</Text>
+                    <View style={styles.infoRow}>
+                      <View style={styles.infoItem}><Text style={styles.infoLabel}>Kcal</Text><Text style={styles.infoValue}>{selectedImage.data.calories}</Text></View>
+                      <View style={styles.infoDivider} /><View style={styles.infoItem}><Text style={styles.infoLabel}>Carb</Text><Text style={styles.infoValue}>{selectedImage.data.carbs || 0}g</Text></View>
+                      <View style={styles.infoItem}><Text style={styles.infoLabel}>Prot</Text><Text style={styles.infoValue}>{selectedImage.data.protein || 0}g</Text></View>
+                      <View style={styles.infoItem}><Text style={styles.infoLabel}>Gord</Text><Text style={styles.infoValue}>{selectedImage.data.fat || 0}g</Text></View>
+                      <View style={styles.infoItem}><Text style={styles.infoLabel}>Aç</Text><Text style={[styles.infoValue, {color: '#fca5a5'}]}>{selectedImage.data.sugar || 0}g</Text></View>
                     </View>
                   </View>
-                </View>
-              )}
-
-              {/* PAINEL DE INFORMAÇÕES (CORPO) */}
-              {selectedImage.type === 'body' && selectedImage.weight && (
-                <View style={styles.infoPanelBody}>
-                  <Text style={styles.infoLabel}>Peso registrado</Text>
-                  <Text style={styles.infoValueBody}>{selectedImage.weight} kg</Text>
-                </View>
-              )}
-            </>
+                )}
+                {selectedImage.type === 'body' && selectedImage.weight && (<View style={styles.infoPanelBody}><Text style={styles.infoLabel}>Peso</Text><Text style={styles.infoValueBody}>{selectedImage.weight} kg</Text></View>)}
+              </>
+            )
           )}
         </View>
       </Modal>
@@ -314,25 +333,41 @@ const styles = StyleSheet.create({
   btnCancelText: { color: '#666', fontWeight: 'bold' },
   btnSave: { flex: 1, padding: 12, backgroundColor: '#8b5cf6', borderRadius: 10, alignItems: 'center' },
   btnSaveText: { color: '#fff', fontWeight: 'bold' },
-  zoomContainer: { flex: 1, backgroundColor: 'rgba(0,0,0,0.95)', justifyContent: 'center' },
+  zoomContainer: { flex: 1, backgroundColor: '#000', justifyContent: 'center' },
   closeBtn: { position: 'absolute', top: 50, right: 20, zIndex: 20, padding: 10, backgroundColor: 'rgba(255,255,255,0.2)', borderRadius: 20 },
   deleteBtn: { position: 'absolute', top: 50, left: 20, zIndex: 20, padding: 10, backgroundColor: 'rgba(255,255,255,0.2)', borderRadius: 20 },
   fullImage: { width: '100%', height: '70%' },
-
-  // --- PAINEL DE INFORMAÇÕES ---
   infoPanel: { position: 'absolute', bottom: 40, width: '90%', backgroundColor: 'rgba(20,20,20,0.95)', padding: 20, borderRadius: 20, alignItems: 'center' },
   infoTitle: { color: '#fff', fontSize: 22, fontWeight: 'bold', marginBottom: 2 },
-  
-  // ESTILO DA DESCRIÇÃO (LISTA DE INGREDIENTES)
   infoDesc: { color: '#bbb', fontSize: 13, fontStyle: 'italic', marginBottom: 8, textAlign: 'center' },
-  
   infoWeight: { color: '#16a34a', fontSize: 14, marginBottom: 15, fontWeight: 'bold' },
   infoRow: { flexDirection: 'row', justifyContent: 'space-around', width: '100%' },
   infoItem: { alignItems: 'center' },
   infoLabel: { color: '#aaa', fontSize: 10, textTransform: 'uppercase' },
   infoValue: { color: '#fff', fontSize: 16, fontWeight: 'bold' },
   infoDivider: { width: 1, height: 30, backgroundColor: '#444' },
-
   infoPanelBody: { position: 'absolute', bottom: 60, backgroundColor: 'rgba(255,255,255,0.9)', paddingHorizontal: 30, paddingVertical: 15, borderRadius: 30 },
   infoValueBody: { fontSize: 24, fontWeight: 'bold', color: '#7c3aed' },
+  
+  // --- NOVOS ESTILOS DE COMPARAÇÃO ---
+  compareBtn: { position: 'absolute', bottom: 140, backgroundColor: '#7c3aed', flexDirection: 'row', alignItems: 'center', paddingVertical: 10, paddingHorizontal: 20, borderRadius: 25 },
+  compareBtnText: { color: '#fff', fontWeight: 'bold', marginLeft: 8 },
+  
+  pickerContent: { backgroundColor: '#fff', borderRadius: 20, padding: 20, height: '60%' },
+  pickerTitle: { fontSize: 18, fontWeight: 'bold', marginBottom: 15, textAlign: 'center' },
+  pickerItem: { flex: 1, margin: 5, alignItems: 'center' },
+  pickerThumb: { width: width/3 - 30, height: 100, borderRadius: 10, backgroundColor: '#eee' },
+  pickerDate: { fontSize: 10, color: '#666', marginTop: 5 },
+  btnCancelPicker: { padding: 15, backgroundColor: '#f3f4f6', borderRadius: 10, alignItems: 'center', marginTop: 10 },
+
+  compareContainer: { flexDirection: 'row', width: '100%', height: '60%', alignItems: 'center', backgroundColor: '#000' },
+  compareHalf: { flex: 1, height: '100%', alignItems: 'center', justifyContent: 'center' },
+  compareImage: { width: '100%', height: '100%', borderRadius: 0 }, // Borda 0 para juntar bem
+  compareDivider: { width: 2, height: '100%', backgroundColor: '#fff' },
+  compareLabel: { position: 'absolute', bottom: 20, backgroundColor: 'rgba(0,0,0,0.6)', padding: 8, borderRadius: 8 },
+  compareText: { color: '#fff', fontSize: 12, fontWeight: 'bold', textAlign: 'center' },
+  compareSub: { color: '#d8b4fe', fontSize: 10, fontWeight: 'bold', textAlign: 'center' },
+  stopCompareBtn: { position: 'absolute', bottom: -60, alignSelf: 'center', padding: 10, backgroundColor: 'rgba(255,255,255,0.2)', borderRadius: 20 },
+  
+  resizeBtn: { position: 'absolute', top: -50, alignSelf: 'center', flexDirection: 'row', alignItems: 'center', padding: 10, backgroundColor: 'rgba(255,255,255,0.2)', borderRadius: 20 },
 });
