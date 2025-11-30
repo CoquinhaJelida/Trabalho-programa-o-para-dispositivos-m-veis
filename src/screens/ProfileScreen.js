@@ -8,19 +8,53 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { saveProfile, getProfile, getHistory, getDayLog, getTodayKey, getCalorieStreak, deleteDailyLog } from '../services/db';
 
 export default function ProfileScreen() {
+  // Dados Básicos
   const [name, setName] = useState('');
   const [age, setAge] = useState('');
   const [weight, setWeight] = useState('');
   const [height, setHeight] = useState('');
   const [targetWeight, setTargetWeight] = useState(''); 
+  
+  // NOVO: Dados para Cálculo Metabólico
+  const [gender, setGender] = useState('male'); // 'male' ou 'female'
+  const [activityLevel, setActivityLevel] = useState(1.2); // Fator de atividade
+  
   const [calorieGoal, setCalorieGoal] = useState('2000');
   const [isStrict, setIsStrict] = useState(false); 
+  
+  // Dados do App
   const [calorieStreak, setCalorieStreak] = useState({ status: 'good', count: 0 });
-
   const [todayCalories, setTodayCalories] = useState(0);
   const [todayWater, setTodayWater] = useState(0);
   const [history, setHistory] = useState({});
   const [expandedDate, setExpandedDate] = useState(null);
+
+  // --- CÁLCULO DA TAXA METABÓLICA (TDEE) ---
+  const calculateTargets = () => {
+    const w = parseFloat(weight);
+    const h = parseFloat(height);
+    const a = parseFloat(age);
+
+    if (!w || !h || !a) return null;
+
+    // Fórmula de Mifflin-St Jeor
+    let bmr = (10 * w) + (6.25 * h) - (5 * a);
+    if (gender === 'male') bmr += 5;
+    else bmr -= 161;
+
+    const tdee = bmr * activityLevel;
+
+    return {
+      maintain: Math.round(tdee),
+      lose: Math.round(tdee - 300), // Déficit leve
+      loseFast: Math.round(tdee - 500), // Déficit agressivo
+      gain: Math.round(tdee + 300) // Superávit
+    };
+  };
+
+  const targets = calculateTargets();
+
+  // --- CARREGAMENTO E SALVAMENTO ---
 
   useEffect(() => {
     loadAllData();
@@ -35,7 +69,10 @@ export default function ProfileScreen() {
         setHeight(data.height || '');
         setCalorieGoal(data.calorieGoal || '2000');
         setIsStrict(data.isStrict || false);
-        setTargetWeight(data.targetWeight || ''); 
+        setTargetWeight(data.targetWeight || '');
+        // Novos campos
+        setGender(data.gender || 'male');
+        setActivityLevel(data.activityLevel || 1.2);
       }
     });
 
@@ -46,28 +83,26 @@ export default function ProfileScreen() {
       setTodayWater(data.water || 0);
     });
 
-    getHistory((data) => {
-      setHistory(data);
-    });
+    getHistory(setHistory);
   };
 
   useEffect(() => {
     const goal = parseFloat(calorieGoal) || 2000;
-    getCalorieStreak(goal, isStrict, (result) => {
-      setCalorieStreak(result);
-    });
+    getCalorieStreak(goal, isStrict, setCalorieStreak);
   }, [todayCalories, calorieGoal, isStrict]);
 
   useEffect(() => {
     if (name || age || weight || height || calorieGoal) {
-      saveProfile({ name, age, weight, height, calorieGoal, isStrict, targetWeight });
+      saveProfile({ 
+        name, age, weight, height, calorieGoal, isStrict, targetWeight, gender, activityLevel 
+      });
     }
-  }, [name, age, weight, height, calorieGoal, isStrict, targetWeight]);
+  }, [name, age, weight, height, calorieGoal, isStrict, targetWeight, gender, activityLevel]);
 
   const handleDeleteDay = (date) => {
     Alert.alert("Apagar Dia", "Tem certeza?", [
       { text: "Cancelar", style: "cancel" },
-      { text: "Apagar", style: "destructive", onPress: () => { deleteDailyLog(date, () => { loadAllData(); }); } }
+      { text: "Apagar", style: "destructive", onPress: () => deleteDailyLog(date, loadAllData) }
     ]);
   };
 
@@ -78,6 +113,7 @@ export default function ProfileScreen() {
     ]);
   };
 
+  // --- VISUAL HELPERS ---
   const calculateBMI = () => {
     const h = parseFloat(height) / 100; const w = parseFloat(weight);
     if (!h || !w || isNaN(h) || isNaN(w)) return null;
@@ -105,6 +141,7 @@ export default function ProfileScreen() {
   return (
     <ScrollView contentContainerStyle={styles.container}>
       
+      {/* BANNER DE FEEDBACK */}
       {showStrictBanner && (
         <View style={[styles.messageCard, isBroken ? { backgroundColor: '#1f2937' } : (calorieStreak.status === 'bad' ? styles.messageBad : styles.messageGood)]}>
           <Feather name={isBroken ? "zap-off" : (calorieStreak.status === 'bad' ? "alert-triangle" : "check-circle")} size={24} color="#fff" />
@@ -124,6 +161,7 @@ export default function ProfileScreen() {
         </View>
       )}
 
+      {/* BARRA DE PROGRESSO */}
       <View style={styles.goalCard}>
         <View style={styles.goalHeader}>
           <Text style={styles.goalTitle}>Consumo Diário</Text>
@@ -144,7 +182,7 @@ export default function ProfileScreen() {
       </View>
 
       <View style={styles.card}>
-        <Text style={styles.cardTitle}>Configurações</Text>
+        <Text style={styles.cardTitle}>Dados Pessoais</Text>
         <Text style={styles.label}>Nome</Text>
         <TextInput style={styles.input} value={name} onChangeText={setName} placeholder="Seu nome" placeholderTextColor="#9ca3af" />
 
@@ -154,25 +192,62 @@ export default function ProfileScreen() {
         </View>
 
         <View style={styles.row}>
-          <View style={styles.halfInput}>
-            <Text style={styles.label}>Peso Atual (kg)</Text>
-            <TextInput style={styles.input} value={weight} onChangeText={setWeight} keyboardType="numeric" placeholder="Ex: 80" placeholderTextColor="#9ca3af" />
-          </View>
-          <View style={styles.halfInput}>
-            <Text style={styles.label}>Meta de Peso (kg)</Text>
-            <TextInput style={[styles.input, { borderColor: '#3b82f6', color: '#3b82f6', fontWeight: 'bold' }]} value={targetWeight} onChangeText={setTargetWeight} keyboardType="numeric" placeholder="Ex: 75" placeholderTextColor="#9ca3af" />
-          </View>
+          <View style={styles.halfInput}><Text style={styles.label}>Peso (kg)</Text><TextInput style={styles.input} value={weight} onChangeText={setWeight} keyboardType="numeric" placeholder="Ex: 80" placeholderTextColor="#9ca3af" /></View>
+          <View style={styles.halfInput}><Text style={styles.label}>Meta Peso (kg)</Text><TextInput style={[styles.input, { borderColor: '#3b82f6', color: '#3b82f6', fontWeight: 'bold' }]} value={targetWeight} onChangeText={setTargetWeight} keyboardType="numeric" placeholder="Ex: 75" placeholderTextColor="#9ca3af" /></View>
+        </View>
+        
+        {weightDiff !== null && (
+          <Text style={{ color: '#666', fontSize: 12, textAlign: 'center', marginTop: -10, marginBottom: 15 }}>
+            {parseFloat(weightDiff) > 0 ? `📉 Faltam perder ${weightDiff} kg` : "🎉 Meta atingida!"}
+          </Text>
+        )}
+
+        {/* --- SELETORES DE GÊNERO E ATIVIDADE --- */}
+        <Text style={styles.label}>Gênero</Text>
+        <View style={styles.selectRow}>
+          <TouchableOpacity style={[styles.selectBtn, gender === 'male' && styles.selectBtnActive]} onPress={() => setGender('male')}>
+            <Text style={[styles.selectText, gender === 'male' && styles.selectTextActive]}>Homem</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={[styles.selectBtn, gender === 'female' && styles.selectBtnActive]} onPress={() => setGender('female')}>
+            <Text style={[styles.selectText, gender === 'female' && styles.selectTextActive]}>Mulher</Text>
+          </TouchableOpacity>
         </View>
 
-        {weightDiff !== null && (
-          <View style={{ alignItems: 'center', marginBottom: 15, marginTop: -5 }}>
-            <Text style={{ color: '#666', fontSize: 12 }}>
-              {parseFloat(weightDiff) > 0 ? `📉 Faltam perder ${weightDiff} kg` : (parseFloat(weightDiff) < 0 ? `📈 Faltam ganhar ${Math.abs(weightDiff)} kg` : "🎉 Meta atingida!")}
-            </Text>
+        <Text style={styles.label}>Nível de Atividade</Text>
+        <View style={styles.selectRow}>
+          <TouchableOpacity style={[styles.selectBtn, activityLevel === 1.2 && styles.selectBtnActive]} onPress={() => setActivityLevel(1.2)}><Text style={[styles.selectText, activityLevel === 1.2 && styles.selectTextActive]}>Sedentário</Text></TouchableOpacity>
+          <TouchableOpacity style={[styles.selectBtn, activityLevel === 1.55 && styles.selectBtnActive]} onPress={() => setActivityLevel(1.55)}><Text style={[styles.selectText, activityLevel === 1.55 && styles.selectTextActive]}>Moderado</Text></TouchableOpacity>
+          <TouchableOpacity style={[styles.selectBtn, activityLevel === 1.9 && styles.selectBtnActive]} onPress={() => setActivityLevel(1.9)}><Text style={[styles.selectText, activityLevel === 1.9 && styles.selectTextActive]}>Intenso</Text></TouchableOpacity>
+        </View>
+
+        {/* --- CALCULADORA DE META INTELIGENTE (DÉFICIT) --- */}
+        {targets && (
+          <View style={styles.calcContainer}>
+            <Text style={styles.calcTitle}>Sugestões Calóricas (TDEE)</Text>
+            <View style={styles.calcOptions}>
+              <TouchableOpacity style={styles.calcOption} onPress={() => setCalorieGoal(String(targets.lose))}>
+                <Text style={styles.calcLabel}>Emagrecer</Text>
+                <Text style={styles.calcValue}>{targets.lose}</Text>
+                <Text style={styles.calcSub}>-300 kcal</Text>
+              </TouchableOpacity>
+              
+              <TouchableOpacity style={styles.calcOption} onPress={() => setCalorieGoal(String(targets.maintain))}>
+                <Text style={styles.calcLabel}>Manter</Text>
+                <Text style={styles.calcValue}>{targets.maintain}</Text>
+                <Text style={styles.calcSub}>Manutenção</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity style={styles.calcOption} onPress={() => setCalorieGoal(String(targets.gain))}>
+                <Text style={styles.calcLabel}>Ganhar</Text>
+                <Text style={styles.calcValue}>{targets.gain}</Text>
+                <Text style={styles.calcSub}>+300 kcal</Text>
+              </TouchableOpacity>
+            </View>
+            <Text style={styles.calcNote}>Clique em uma opção acima para aplicar a meta automaticamente.</Text>
           </View>
         )}
 
-        <Text style={styles.label}>Meta Diária de Calorias</Text>
+        <Text style={styles.label}>Meta Diária Definida</Text>
         <TextInput style={[styles.input, { borderColor: '#16a34a', color: '#16a34a', fontWeight: 'bold' }]} value={calorieGoal} onChangeText={setCalorieGoal} keyboardType="numeric" placeholder="2000" placeholderTextColor="#9ca3af" />
 
         <View style={styles.switchRow}>
@@ -214,10 +289,7 @@ export default function ProfileScreen() {
                 {dayMeals.length > 0 ? dayMeals.map((meal, idx) => (
                   <View key={idx} style={styles.mealRow}><Text style={styles.mealName}>• {meal.name}</Text><Text style={styles.mealCal}>{meal.calories} kcal</Text></View>
                 )) : <Text style={styles.noMealText}>Sem refeições.</Text>}
-                <TouchableOpacity style={styles.deleteDayButton} onPress={() => handleDeleteDay(date)}>
-                  <Feather name="trash-2" size={16} color="#ef4444" />
-                  <Text style={styles.deleteDayText}>Apagar Registro do Dia</Text>
-                </TouchableOpacity>
+                <TouchableOpacity style={styles.deleteDayButton} onPress={() => handleDeleteDay(date)}><Feather name="trash-2" size={16} color="#ef4444" /><Text style={styles.deleteDayText}>Apagar Registro do Dia</Text></TouchableOpacity>
               </View>
             )}
           </View>
@@ -280,5 +352,22 @@ const styles = StyleSheet.create({
   deleteDayButton: { marginTop: 15, paddingTop: 15, borderTopWidth: 1, borderTopColor: '#eee', flexDirection: 'row', alignItems: 'center', justifyContent: 'center' },
   deleteDayText: { color: '#ef4444', fontSize: 14, fontWeight: 'bold', marginLeft: 8 },
   resetAllButton: { padding: 12, borderRadius: 8, backgroundColor: '#fee2e2' },
-  resetAllText: { color: '#ef4444', fontWeight: 'bold', fontSize: 12 }
+  resetAllText: { color: '#ef4444', fontWeight: 'bold', fontSize: 12 },
+
+  // --- ESTILOS DE SELETOR (Gênero/Atividade) ---
+  selectRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 15, gap: 10 },
+  selectBtn: { flex: 1, paddingVertical: 10, alignItems: 'center', borderRadius: 8, backgroundColor: '#f3f4f6', borderWidth: 1, borderColor: '#e5e7eb' },
+  selectBtnActive: { backgroundColor: '#16a34a', borderColor: '#16a34a' },
+  selectText: { color: '#666', fontWeight: '600', fontSize: 12 },
+  selectTextActive: { color: '#fff' },
+
+  // --- ESTILOS DA CALCULADORA (Sugestões) ---
+  calcContainer: { marginBottom: 20, padding: 10, backgroundColor: '#f0fdf4', borderRadius: 12, borderWidth: 1, borderColor: '#dcfce7' },
+  calcTitle: { fontSize: 14, fontWeight: 'bold', color: '#166534', marginBottom: 10, textAlign: 'center' },
+  calcOptions: { flexDirection: 'row', justifyContent: 'space-between', gap: 10 },
+  calcOption: { flex: 1, alignItems: 'center', backgroundColor: '#fff', padding: 10, borderRadius: 8, elevation: 1 },
+  calcLabel: { fontSize: 10, color: '#666', textTransform: 'uppercase', fontWeight: 'bold' },
+  calcValue: { fontSize: 18, fontWeight: 'bold', color: '#16a34a', marginVertical: 2 },
+  calcSub: { fontSize: 10, color: '#999' },
+  calcNote: { fontSize: 10, color: '#666', textAlign: 'center', marginTop: 8, fontStyle: 'italic' },
 });
