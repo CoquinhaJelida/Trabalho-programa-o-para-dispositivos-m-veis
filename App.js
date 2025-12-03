@@ -1,14 +1,20 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { 
-  StyleSheet, View, Text, TouchableOpacity, SafeAreaView, StatusBar, KeyboardAvoidingView, Platform, ScrollView, Modal, Animated 
+  StyleSheet, View, Text, TouchableOpacity, SafeAreaView, StatusBar, KeyboardAvoidingView, Platform, ScrollView, Modal, Animated, ActivityIndicator 
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Feather } from '@expo/vector-icons';
 import { SafeAreaProvider, SafeAreaView as SafeAreaContext } from 'react-native-safe-area-context';
 import * as NavigationBar from 'expo-navigation-bar'; 
+import AsyncStorage from '@react-native-async-storage/async-storage'; // <--- IMPORTANTE
+
+// --- FIREBASE AUTH ---
+import { onAuthStateChanged, signOut } from 'firebase/auth';
+import { auth } from './src/config/firebase';
 
 // Importação das Telas
 import Header from './src/components/Header';
+import LoginScreen from './src/screens/LoginScreen';
 import HomeScreen from './src/screens/HomeScreen';
 import MealsScreen from './src/screens/MealsScreen';
 import WaterScreen from './src/screens/WaterScreen';
@@ -19,14 +25,71 @@ import CommunityScreen from './src/screens/CommunityScreen';
 import ChallengesScreen from './src/screens/ChallengesScreen';
 
 import { motivationalMessages } from './src/data/motivation';
+// IMPORTAÇÃO DOS TEMAS
+import { lightTheme, darkTheme } from './src/theme/colors';
+// Importa função de pegar imagem de fundo
+import { getBackgroundImage } from './src/services/db';
+
+const THEME_PREF_KEY = '@theme_preference'; // Chave para salvar o tema
 
 export default function App() {
+  const [user, setUser] = useState(null);
+  const [loadingAuth, setLoadingAuth] = useState(true);
   const [currentTab, setCurrentTab] = useState('home');
+  
+  // TEMA E BACKGROUND
+  const [isDarkMode, setIsDarkMode] = useState(false);
+  const [customBg, setCustomBg] = useState(null);
+  const theme = isDarkMode ? darkTheme : lightTheme;
+
   const [showMotivation, setShowMotivation] = useState(false);
   const [todaysMessage, setTodaysMessage] = useState('');
   const [xpNotification, setXpNotification] = useState({ visible: false, amount: 0, message: '' });
+  
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const slideAnim = useRef(new Animated.Value(-50)).current;
+
+  // 1. CARREGA TEMA SALVO E BACKGROUND AO INICIAR
+  useEffect(() => {
+    const loadSettings = async () => {
+      // Carrega Tema
+      try {
+        const savedTheme = await AsyncStorage.getItem(THEME_PREF_KEY);
+        if (savedTheme !== null) {
+          setIsDarkMode(savedTheme === 'dark');
+        }
+      } catch (e) {}
+
+      // Carrega Background
+      getBackgroundImage(setCustomBg);
+    };
+    loadSettings();
+  }, []);
+
+  // 2. VERIFICA LOGIN
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, (authenticatedUser) => {
+      setUser(authenticatedUser);
+      setLoadingAuth(false);
+      // Recarrega BG se mudar de usuário
+      if (authenticatedUser) getBackgroundImage(setCustomBg);
+    });
+    return unsubscribe;
+  }, []);
+
+  // 3. ALTERNAR TEMA E SALVAR
+  const toggleTheme = async () => {
+    const newMode = !isDarkMode;
+    setIsDarkMode(newMode);
+    try {
+      await AsyncStorage.setItem(THEME_PREF_KEY, newMode ? 'dark' : 'light');
+    } catch (e) {}
+  };
+
+  // Atualiza BG vindo do Profile
+  const handleUpdateBg = (uri) => {
+    setCustomBg(uri);
+  };
 
   const handleGainXP = (amount, message = '') => {
     setXpNotification({ visible: true, amount, message });
@@ -42,8 +105,21 @@ export default function App() {
     }, 2500);
   };
 
-  useEffect(() => { if (Platform.OS === 'android') { NavigationBar.setVisibilityAsync('hidden'); NavigationBar.setBehaviorAsync('overlay-swipe'); NavigationBar.setBackgroundColorAsync('#ffffff00'); } }, []);
-  useEffect(() => { if (motivationalMessages && motivationalMessages.length > 0) { const randomIndex = Math.floor(Math.random() * motivationalMessages.length); setTodaysMessage(motivationalMessages[randomIndex]); setShowMotivation(true); } }, []);
+  useEffect(() => {
+    if (Platform.OS === 'android') {
+      NavigationBar.setVisibilityAsync('hidden');
+      NavigationBar.setBehaviorAsync('overlay-swipe');
+      NavigationBar.setBackgroundColorAsync('#ffffff00'); 
+    }
+  }, []);
+
+  useEffect(() => {
+    if (user && motivationalMessages && motivationalMessages.length > 0) {
+      const randomIndex = Math.floor(Math.random() * motivationalMessages.length);
+      setTodaysMessage(motivationalMessages[randomIndex]);
+      setShowMotivation(true);
+    }
+  }, [user]);
 
   const getThemeColor = () => {
     if (currentTab === 'water') return ['#eff6ff', '#dbeafe']; 
@@ -63,88 +139,83 @@ export default function App() {
     return '#16a34a';
   };
 
+  if (loadingAuth) {
+    return <View style={{flex:1, justifyContent:'center', alignItems:'center', backgroundColor: theme.background}}><ActivityIndicator size="large" color={theme.primary} /></View>;
+  }
+
+  if (!user) return <LoginScreen />;
+
+  // WRAPPER DE FUNDO
+  const BackgroundWrapper = ({ children }) => {
+    if (customBg) {
+      return (
+        <View style={{ flex: 1 }}>
+          <ImageBackground source={{ uri: customBg }} style={[styles.fixedBackground]} resizeMode="cover" />
+          <View style={{ flex: 1, backgroundColor: isDarkMode ? 'rgba(0,0,0,0.7)' : 'rgba(255,255,255,0.4)' }}>
+            {children}
+          </View>
+        </View>
+      );
+    }
+    if (isDarkMode) return <View style={[styles.background, { backgroundColor: theme.background }]}>{children}</View>;
+    return <LinearGradient colors={['#f0fdf4', '#eff6ff']} style={styles.background}>{children}</LinearGradient>;
+  };
+  
+  // Importar ImageBackground apenas para o wrapper se necessário, mas aqui usei View absoluta para garantir
+  const ImageBackground = require('react-native').ImageBackground;
+
   return (
     <SafeAreaProvider>
-      <SafeAreaContext style={styles.container} edges={['top', 'left', 'right']}>
-        <StatusBar barStyle="light-content" backgroundColor={getStatusBarColor()} />
-        <LinearGradient colors={getThemeColor()} style={styles.background} />
-
-        <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={{ flex: 1 }}>
-          <View style={{ flex: 1 }}>
-            
-            {/* HEADER COM PERFIL CLICÁVEL */}
-            <Header onProfileClick={() => setCurrentTab('profile')} />
-
-            <View style={styles.tabContainer}>
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{flexGrow: 1}}>
-                
-                <TouchableOpacity onPress={() => setCurrentTab('home')} style={[styles.tabBtn, currentTab === 'home' && styles.activeTabGreen]}>
-                  <Feather name="home" size={18} color={currentTab === 'home' ? '#fff' : '#4b5563'} />
-                  <Text style={[styles.tabText, currentTab === 'home' && { color: '#fff' }]}>Início</Text>
-                </TouchableOpacity>
-
-                {/* NOTA: O BOTÃO PERFIL FOI REMOVIDO DAQUI */}
-
-                <TouchableOpacity onPress={() => setCurrentTab('meals')} style={[styles.tabBtn, currentTab === 'meals' && styles.activeTabGreen]}>
-                  <Feather name="coffee" size={18} color={currentTab === 'meals' ? '#fff' : '#4b5563'} />
-                  <Text style={[styles.tabText, currentTab === 'meals' && { color: '#fff' }]}>Refeições</Text>
-                </TouchableOpacity>
-
-                <TouchableOpacity onPress={() => setCurrentTab('challenges')} style={[styles.tabBtn, currentTab === 'challenges' && styles.activeTabGold]}>
-                  <Feather name="award" size={18} color={currentTab === 'challenges' ? '#fff' : '#4b5563'} />
-                  <Text style={[styles.tabText, currentTab === 'challenges' && { color: '#fff' }]}>Desafios</Text>
-                </TouchableOpacity>
-
-                <TouchableOpacity onPress={() => setCurrentTab('community')} style={[styles.tabBtn, currentTab === 'community' && styles.activeTabCommunity]}>
-                  <Feather name="users" size={18} color={currentTab === 'community' ? '#fff' : '#4b5563'} />
-                  <Text style={[styles.tabText, currentTab === 'community' && { color: '#fff' }]}>Social</Text>
-                </TouchableOpacity>
-
-                <TouchableOpacity onPress={() => setCurrentTab('water')} style={[styles.tabBtn, currentTab === 'water' && styles.activeTabBlue]}>
-                  <Feather name="droplet" size={18} color={currentTab === 'water' ? '#fff' : '#4b5563'} />
-                  <Text style={[styles.tabText, currentTab === 'water' && { color: '#fff' }]}>Água</Text>
-                </TouchableOpacity>
-
-                <TouchableOpacity onPress={() => setCurrentTab('fasting')} style={[styles.tabBtn, currentTab === 'fasting' && styles.activeTabOrange]}>
-                  <Feather name="clock" size={18} color={currentTab === 'fasting' ? '#fff' : '#4b5563'} />
-                  <Text style={[styles.tabText, currentTab === 'fasting' && { color: '#fff' }]}>Jejum</Text>
-                </TouchableOpacity>
-
-                <TouchableOpacity onPress={() => setCurrentTab('gallery')} style={[styles.tabBtn, currentTab === 'gallery' && styles.activeTabPurple]}>
-                  <Feather name="camera" size={18} color={currentTab === 'gallery' ? '#fff' : '#4b5563'} />
-                  <Text style={[styles.tabText, currentTab === 'gallery' && { color: '#fff' }]}>Galeria</Text>
-                </TouchableOpacity>
-              </ScrollView>
-            </View>
-
+      <SafeAreaContext style={[styles.container, { backgroundColor: theme.background }]} edges={['top', 'left', 'right']}>
+        <StatusBar barStyle={theme.statusText} backgroundColor="transparent" translucent />
+        
+        <BackgroundWrapper>
+          <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={{ flex: 1 }}>
             <View style={{ flex: 1 }}>
-              {currentTab === 'home' && <HomeScreen changeTab={setCurrentTab} />}
-              {currentTab === 'profile' && <ProfileScreen />}
-              {currentTab === 'meals' && <MealsScreen onGainXP={handleGainXP} />}
-              {currentTab === 'water' && <WaterScreen onGainXP={handleGainXP} />}
-              {currentTab === 'gallery' && <GalleryScreen />}
-              {currentTab === 'fasting' && <FastingScreen onGainXP={handleGainXP} />}
-              {currentTab === 'community' && <CommunityScreen />}
-              {currentTab === 'challenges' && <ChallengesScreen onGainXP={handleGainXP} />}
-            </View>
-          </View>
-        </KeyboardAvoidingView>
+              
+              <Header 
+                onProfileClick={() => setCurrentTab('profile')} 
+                toggleTheme={toggleTheme} 
+                isDarkMode={isDarkMode} 
+                theme={theme} 
+              />
 
-        {xpNotification.visible && (
-          <Animated.View style={[styles.xpToast, { opacity: fadeAnim, transform: [{ translateY: slideAnim }] }]}>
-            <View style={styles.xpBadge}><Feather name="star" size={16} color="#fff" /></View>
-            <Text style={styles.xpText}>+{xpNotification.amount} XP</Text>
-            {xpNotification.message ? <Text style={styles.xpSubText}>| {xpNotification.message}</Text> : null}
-          </Animated.View>
-        )}
+              <View style={[styles.tabContainer, { backgroundColor: customBg ? 'rgba(255,255,255,0.8)' : theme.tabBar, borderBottomColor: theme.border }]}>
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{flexGrow: 1}}>
+                  {[
+                    {id:'home', icon:'home', label:'Início'},{id:'profile', icon:'user', label:'Perfil'},{id:'meals', icon:'coffee', label:'Refeições'},{id:'challenges', icon:'award', label:'Desafios'},{id:'community', icon:'users', label:'Social'},{id:'water', icon:'droplet', label:'Água'},{id:'fasting', icon:'clock', label:'Jejum'},{id:'gallery', icon:'camera', label:'Galeria'}
+                  ].map(tab => (
+                    <TouchableOpacity key={tab.id} onPress={() => setCurrentTab(tab.id)} style={[styles.tabBtn, currentTab === tab.id && { backgroundColor: theme.primary + '20' }]}>
+                      <Feather name={tab.icon} size={18} color={currentTab === tab.id ? theme.primary : theme.tabIcon} />
+                      <Text style={[styles.tabText, { color: currentTab === tab.id ? theme.primary : theme.tabIcon }]}>{tab.label}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </ScrollView>
+              </View>
+
+              <View style={{ flex: 1 }}>
+                {currentTab === 'home' && <HomeScreen changeTab={setCurrentTab} theme={theme} />}
+                {currentTab === 'profile' && <ProfileScreen theme={theme} onUpdateBg={handleUpdateBg} />}
+                {currentTab === 'meals' && <MealsScreen onGainXP={handleGainXP} theme={theme} />}
+                {currentTab === 'water' && <WaterScreen onGainXP={handleGainXP} theme={theme} />}
+                {currentTab === 'gallery' && <GalleryScreen theme={theme} />}
+                {currentTab === 'fasting' && <FastingScreen onGainXP={handleGainXP} theme={theme} />}
+                {currentTab === 'community' && <CommunityScreen theme={theme} />}
+                {currentTab === 'challenges' && <ChallengesScreen onGainXP={handleGainXP} theme={theme} />}
+              </View>
+            </View>
+          </KeyboardAvoidingView>
+        </BackgroundWrapper>
+
+        {xpNotification.visible && (<Animated.View style={[styles.xpToast, { opacity: fadeAnim, transform: [{ translateY: slideAnim }], backgroundColor: theme.card, shadowColor: theme.text }]}><View style={styles.xpBadge}><Feather name="star" size={16} color="#fff" /></View><Text style={[styles.xpText, {color: theme.text}]}>+{xpNotification.amount} XP</Text>{xpNotification.message ? <Text style={[styles.xpSubText, {color: theme.textSub}]}>| {xpNotification.message}</Text> : null}</Animated.View>)}
 
         <Modal visible={showMotivation} transparent={true} animationType="fade">
           <View style={styles.modalOverlay}>
-            <View style={styles.modalContent}>
+            <View style={[styles.modalContent, { backgroundColor: theme.card }]}>
               <View style={styles.iconCircle}><Feather name="sun" size={32} color="#f59e0b" /></View>
-              <Text style={styles.modalTitle}>Mensagem do Dia</Text>
-              <Text style={styles.modalText}>"{todaysMessage}"</Text>
-              <TouchableOpacity style={styles.modalButton} onPress={() => setShowMotivation(false)}><Text style={styles.modalButtonText}>VAMOS LÁ! 💪</Text></TouchableOpacity>
+              <Text style={[styles.modalTitle, { color: theme.textSub }]}>Mensagem do Dia</Text>
+              <Text style={[styles.modalText, { color: theme.text }]}>"{todaysMessage}"</Text>
+              <TouchableOpacity style={[styles.modalButton, { backgroundColor: theme.primary }]} onPress={() => setShowMotivation(false)}><Text style={styles.modalButtonText}>VAMOS LÁ! 💪</Text></TouchableOpacity>
             </View>
           </View>
         </Modal>
@@ -157,25 +228,19 @@ export default function App() {
 const styles = StyleSheet.create({
   container: { flex: 1 },
   background: { position: 'absolute', left: 0, right: 0, top: 0, height: '100%' },
-  tabContainer: { flexDirection: 'row', backgroundColor: '#fff', elevation: 4, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.1, shadowRadius: 2, borderBottomWidth: 1, borderBottomColor: '#f0f0f0' },
-  tabBtn: { paddingVertical: 12, paddingHorizontal: 15, alignItems: 'center', flexDirection: 'row' },
-  tabText: { fontWeight: '600', marginLeft: 4, fontSize: 12, color: '#4b5563' },
-  activeTabGreen: { backgroundColor: '#16a34a', borderRadius: 8, margin: 4 },
-  activeTabBlue: { backgroundColor: '#2563eb', borderRadius: 8, margin: 4 },
-  activeTabPurple: { backgroundColor: '#7c3aed', borderRadius: 8, margin: 4 },
-  activeTabOrange: { backgroundColor: '#d97706', borderRadius: 8, margin: 4 },
-  activeTabCommunity: { backgroundColor: '#0284c7', borderRadius: 8, margin: 4 },
-  activeTabGold: { backgroundColor: '#f59e0b', borderRadius: 8, margin: 4 },
-
+  fixedBackground: { position: 'absolute', width: '100%', height: '100%' },
+  tabContainer: { flexDirection: 'row', elevation: 4, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.1, shadowRadius: 2, borderBottomWidth: 1 },
+  tabBtn: { paddingVertical: 12, paddingHorizontal: 15, alignItems: 'center', flexDirection: 'row', borderRadius: 8, margin: 4 },
+  tabText: { fontWeight: '600', marginLeft: 4, fontSize: 12 },
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'center', alignItems: 'center', padding: 20 },
-  modalContent: { backgroundColor: '#fff', width: '85%', padding: 25, borderRadius: 20, alignItems: 'center', elevation: 10 },
+  modalContent: { width: '85%', padding: 25, borderRadius: 20, alignItems: 'center', elevation: 10 },
   iconCircle: { width: 60, height: 60, borderRadius: 30, backgroundColor: '#fef3c7', justifyContent: 'center', alignItems: 'center', marginBottom: 15 },
-  modalTitle: { fontSize: 14, fontWeight: 'bold', color: '#9ca3af', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 10 },
-  modalText: { fontSize: 20, fontWeight: 'bold', color: '#374151', textAlign: 'center', marginBottom: 25, fontStyle: 'italic', lineHeight: 28 },
-  modalButton: { backgroundColor: '#16a34a', paddingVertical: 12, paddingHorizontal: 40, borderRadius: 25, elevation: 3 },
+  modalTitle: { fontSize: 14, fontWeight: 'bold', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 10 },
+  modalText: { fontSize: 20, fontWeight: 'bold', textAlign: 'center', marginBottom: 25, fontStyle: 'italic', lineHeight: 28 },
+  modalButton: { paddingVertical: 12, paddingHorizontal: 40, borderRadius: 25, elevation: 3 },
   modalButtonText: { color: '#fff', fontWeight: 'bold', fontSize: 16 },
-  xpToast: { position: 'absolute', top: 110, alignSelf: 'center', backgroundColor: '#1f2937', flexDirection: 'row', alignItems: 'center', paddingVertical: 10, paddingHorizontal: 20, borderRadius: 30, elevation: 10, shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 5, zIndex: 9999 },
+  xpToast: { position: 'absolute', top: 110, alignSelf: 'center', flexDirection: 'row', alignItems: 'center', paddingVertical: 10, paddingHorizontal: 20, borderRadius: 30, elevation: 10, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 5, zIndex: 9999 },
   xpBadge: { backgroundColor: '#f59e0b', borderRadius: 15, width: 24, height: 24, alignItems: 'center', justifyContent: 'center', marginRight: 10 },
-  xpText: { color: '#f59e0b', fontWeight: 'bold', fontSize: 16 },
-  xpSubText: { color: '#fff', fontSize: 14, marginLeft: 8, fontWeight: '600' }
+  xpText: { fontWeight: 'bold', fontSize: 16 },
+  xpSubText: { fontSize: 14, marginLeft: 8, fontWeight: '600' }
 });

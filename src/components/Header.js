@@ -3,23 +3,29 @@ import { View, Text, StyleSheet, Platform, TouchableOpacity } from 'react-native
 import { LinearGradient } from 'expo-linear-gradient';
 import { Feather } from '@expo/vector-icons';
 
-export default function Header({ onProfileClick }) {
+export default function Header({ onProfileClick, toggleTheme, isDarkMode, theme }) {
   return (
     <LinearGradient
-      colors={['#16a34a', '#15803d']}
+      colors={isDarkMode ? ['#1f2937', '#111827'] : ['#16a34a', '#15803d']}
       style={styles.header}
     >
       <View style={styles.row}>
-        {/* Textos do Título */}
         <View>
-          <Text style={styles.headerTitle}>Nutrição Diária</Text>
+          <Text style={styles.headerTitle}>NutriLife</Text>
           <Text style={styles.headerSubtitle}>Monitore sua saúde</Text>
         </View>
 
-        {/* Botão de Perfil (Bolinha) */}
-        <TouchableOpacity style={styles.profileButton} onPress={onProfileClick}>
-          <Feather name="user" size={24} color="#16a34a" />
-        </TouchableOpacity>
+        <View style={{flexDirection: 'row', gap: 10}}>
+          {/* Botão de Tema */}
+          <TouchableOpacity style={[styles.iconButton, {backgroundColor: theme.card}]} onPress={toggleTheme}>
+            <Feather name={isDarkMode ? "sun" : "moon"} size={20} color={theme.text} />
+          </TouchableOpacity>
+
+          {/* Botão de Perfil */}
+          <TouchableOpacity style={[styles.iconButton, {backgroundColor: theme.card}]} onPress={onProfileClick}>
+            <Feather name="user" size={20} color={theme.primary} />
+          </TouchableOpacity>
+        </View>
       </View>
     </LinearGradient>
   );
@@ -29,7 +35,7 @@ const styles = StyleSheet.create({
   header: {
     paddingHorizontal: 24,
     paddingBottom: 24,
-    paddingTop: Platform.OS === 'android' ? 50 : 24, // Ajuste para a barra de status
+    paddingTop: Platform.OS === 'android' ? 50 : 24,
     elevation: 5,
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 4 },
@@ -51,12 +57,10 @@ const styles = StyleSheet.create({
     marginTop: 4,
     fontSize: 14,
   },
-  // Estilo da Bolinha de Perfil
-  profileButton: {
-    width: 45,
-    height: 45,
-    borderRadius: 22.5,
-    backgroundColor: '#fff',
+  iconButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
     justifyContent: 'center',
     alignItems: 'center',
     elevation: 4,
