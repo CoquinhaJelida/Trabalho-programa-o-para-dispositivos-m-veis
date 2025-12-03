@@ -1,15 +1,18 @@
 import React, { useState, useEffect } from 'react';
 import { 
-  View, Text, TouchableOpacity, StyleSheet, ScrollView, RefreshControl, Alert 
+  View, Text, TouchableOpacity, StyleSheet, ScrollView, RefreshControl, ActivityIndicator 
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Feather } from '@expo/vector-icons';
-import { getProfile, getDayLog, getTodayKey, getFastingState, getHistory, getFastingHistory } from '../services/db';
+import { getProfile, getDayLog, getTodayKey, getFastingState, getHistory, getFastingHistory, getUserStats } from '../services/db';
 
 export default function HomeScreen({ changeTab }) {
   const [name, setName] = useState('');
   const [refreshing, setRefreshing] = useState(false);
-  const [timeRange, setTimeRange] = useState('day');
+  const [timeRange, setTimeRange] = useState('day'); // 'day', 'week', 'month'
+
+  // Estado de RPG
+  const [userStats, setUserStats] = useState({ level: 1, currentXP: 0, nextLevelXP: 100 });
 
   const [stats, setStats] = useState({ calories: 0, water: 0, fasting: '0h', fastingAvg: '0h', label: 'Total de Hoje' });
   const [goals, setGoals] = useState({ calories: 2000, water: 2500 });
@@ -18,9 +21,13 @@ export default function HomeScreen({ changeTab }) {
   const [fastingStart, setFastingStart] = useState(null);
   const [fastingElapsed, setFastingElapsed] = useState('00:00:00');
 
+  // Carrega dados ao abrir e ao mudar filtro
   useEffect(() => {
     loadAllData();
+  }, [timeRange]);
     
+  // Timer do Jejum
+  useEffect(() => {
     const interval = setInterval(() => {
       if (isFasting && fastingStart) {
         const now = Date.now();
@@ -31,15 +38,17 @@ export default function HomeScreen({ changeTab }) {
         setFastingElapsed(`${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`);
       }
     }, 1000);
-
     return () => clearInterval(interval);
-  }, [isFasting, fastingStart, timeRange]);
+  }, [isFasting, fastingStart]);
 
   const loadAllData = async () => {
-    if (refreshing) return; 
+    if (refreshing) return;
     setRefreshing(true);
     
     try {
+      // 1. Carrega RPG e Perfil
+      getUserStats(setUserStats);
+      
       await new Promise(resolve => {
         getProfile((data) => {
           if (data) {
@@ -50,6 +59,7 @@ export default function HomeScreen({ changeTab }) {
         });
       });
 
+      // 2. Jejum Atual
       await new Promise(resolve => {
         getFastingState((data) => {
           if (data && data.isFasting) { setIsFasting(true); setFastingStart(data.startTime); } 
@@ -58,6 +68,7 @@ export default function HomeScreen({ changeTab }) {
         });
       });
 
+      // 3. Históricos Completos
       const [dailyLog, fastingLog] = await Promise.all([
         new Promise(resolve => getHistory(resolve)),
         new Promise(resolve => getFastingHistory(resolve))
@@ -66,55 +77,81 @@ export default function HomeScreen({ changeTab }) {
       calculateStats(dailyLog || {}, fastingLog || []);
 
     } catch (error) {
-      console.error(error);
+      console.error("Erro Home:", error);
     } finally {
       setRefreshing(false);
     }
   };
 
+  // --- LÓGICA DE CÁLCULO CORRIGIDA ---
   const calculateStats = (dailyHistory, fastingHistoryArray) => {
-    const todayKey = getTodayKey();
+    const todayKey = getTodayKey(); // Data de hoje "YYYY-MM-DD"
     
     if (timeRange === 'day') {
+      // MODO HOJE: Pega direto a chave
       const todayData = dailyHistory[todayKey] || { water: 0, totalCalories: 0 };
       setStats({
         calories: Math.round(todayData.totalCalories || 0),
         water: Math.round(todayData.water || 0),
-        fasting: isFasting ? fastingElapsed : "Parado",
+        fasting: isFasting ? fastingElapsed : "Parado", // Se estiver rodando mostra timer, senao "Parado"
+        fastingAvg: "-",
         label: 'Total de Hoje'
       });
+    
     } else {
+      // MODO SEMANA/MÊS: Filtra por data
       const daysBack = timeRange === 'week' ? 7 : 30;
-      const now = new Date();
-      let totalCals = 0; let totalWater = 0; let daysWithData = 0;
       
-      for (let i = 0; i < daysBack; i++) {
-        const d = new Date(); d.setDate(now.getDate() - i);
-        const key = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
-        if (dailyHistory[key]) { 
-          totalCals += (dailyHistory[key].totalCalories || 0); 
-          totalWater += (dailyHistory[key].water || 0); 
-          daysWithData++; 
+      // Cria data de corte (ex: hoje - 7 dias)
+      const cutoffDate = new Date();
+      cutoffDate.setDate(cutoffDate.getDate() - daysBack);
+      // Zera as horas para comparar apenas o dia
+      cutoffDate.setHours(0, 0, 0, 0);
+
+      let sumCals = 0;
+      let sumWater = 0;
+      let validDaysCount = 0;
+
+      // Itera sobre TODAS as chaves do histórico
+      Object.keys(dailyHistory).forEach(key => {
+        // Converte chave "YYYY-MM-DD" para Date
+        // Hack: Adiciona "T12:00:00" para evitar problemas de fuso horário ao criar o Date
+        const logDate = new Date(key + "T12:00:00");
+        
+        if (logDate >= cutoffDate) {
+          sumCals += (dailyHistory[key].totalCalories || 0);
+          sumWater += (dailyHistory[key].water || 0);
+          validDaysCount++;
         }
-      }
-      
-      const limitDate = new Date(); limitDate.setDate(now.getDate() - daysBack);
-      const filteredFasts = fastingHistoryArray.filter(log => { if (!log.date) return false; return new Date(log.date) >= limitDate; });
+      });
+
+      // Filtra Jejuns
+      const filteredFasts = fastingHistoryArray.filter(log => {
+        if (!log.endTime) return false;
+        return new Date(log.endTime) >= cutoffDate;
+      });
+
       const totalFastingSeconds = filteredFasts.reduce((acc, curr) => acc + (curr.durationSeconds || 0), 0);
       const totalFastingHours = Math.floor(totalFastingSeconds / 3600);
+      
+      // Média por jejum (evita divisão por zero)
       const avgFastingSeconds = filteredFasts.length > 0 ? totalFastingSeconds / filteredFasts.length : 0;
       const avgFastingH = Math.floor(avgFastingSeconds / 3600);
 
+      // Média Diária (Divide pela quantidade de dias que o usuário realmente usou o app, para não jogar a média pra baixo se ele faltou)
+      const divisor = validDaysCount > 0 ? validDaysCount : 1;
+
       setStats({
-        calories: daysWithData > 0 ? Math.round(totalCals / daysWithData) : 0,
-        water: daysWithData > 0 ? Math.round(totalWater / daysWithData) : 0,
-        fasting: `${totalFastingHours}h`,
-        fastingAvg: `${avgFastingH}h/dia`,
-        label: timeRange === 'week' ? 'Média 7 Dias' : 'Média 30 Dias'
+        calories: Math.round(sumCals / divisor),
+        water: Math.round(sumWater / divisor),
+        fasting: `${totalFastingHours}h`, // Total acumulado
+        fastingAvg: `${avgFastingH}h/ciclo`, // Média por sessão
+        label: timeRange === 'week' ? 'Média (Últimos 7 dias)' : 'Média (Últimos 30 dias)'
       });
     }
   };
 
+  // Atualiza visual do timer (só se estiver no modo dia)
   useEffect(() => {
     if (timeRange === 'day' && isFasting) {
       setStats(prev => ({ ...prev, fasting: fastingElapsed }));
@@ -123,43 +160,39 @@ export default function HomeScreen({ changeTab }) {
 
   const calPercent = goals.calories > 0 ? Math.min((stats.calories / goals.calories) * 100, 100) : 0;
   const waterPercent = goals.water > 0 ? Math.min((stats.water / goals.water) * 100, 100) : 0;
+  const xpPercent = userStats.nextLevelXP > 0 ? Math.min((userStats.currentXP / userStats.nextLevelXP) * 100, 100) : 0;
 
   return (
     <ScrollView contentContainerStyle={styles.container} refreshControl={<RefreshControl refreshing={refreshing} onRefresh={loadAllData} />}>
-      {/* HEADER SIMPLES */}
+      
       <View style={styles.header}>
-        <View>
+        <View style={{flex: 1}}>
           <Text style={styles.greeting}>Olá, {name}</Text>
-          <Text style={styles.subGreeting}>Vamos bater a meta hoje?</Text>
+          <View style={styles.levelContainer}>
+             <View style={styles.levelBadge}><Text style={styles.levelText}>Nível {userStats.level}</Text></View>
+             <View style={styles.xpBarBg}><LinearGradient colors={['#8b5cf6', '#6d28d9']} style={[styles.xpBarFill, {width: `${xpPercent}%`}]} /></View>
+             <Text style={styles.xpText}>{userStats.currentXP}/{userStats.nextLevelXP} XP</Text>
+          </View>
         </View>
-        <TouchableOpacity onPress={() => changeTab('profile')}>
-          <Feather name="settings" size={24} color="#4b5563" />
-        </TouchableOpacity>
+        <TouchableOpacity onPress={() => changeTab('profile')}><Feather name="settings" size={24} color="#4b5563" /></TouchableOpacity>
       </View>
 
-      {/* --- NOVA POSIÇÃO: BARRA DE CONSUMO DIÁRIO --- */}
       <View style={styles.goalCard}>
         <View style={styles.goalHeader}>
           <Text style={styles.goalTitle}>Consumo ({timeRange === 'day' ? 'Hoje' : 'Média'})</Text>
-          <Text style={styles.goalValues}>
-            {Math.round(stats.calories)} <Text style={{fontSize: 14, color: '#888'}}>/ {Math.round(goals.calories)} kcal</Text>
-          </Text>
+          <Text style={styles.goalValues}>{Math.round(stats.calories)} <Text style={{fontSize: 14, color: '#888'}}>/ {Math.round(goals.calories)} kcal</Text></Text>
         </View>
         <View style={styles.progressBarBackground}>
-          <LinearGradient
-            colors={stats.calories > goals.calories ? ['#ef4444', '#b91c1c'] : ['#22c55e', '#16a34a']}
-            start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }}
-            style={[styles.progressBarFill, { width: `${calPercent}%` }]}
-          />
+          <LinearGradient colors={stats.calories > goals.calories ? ['#ef4444', '#b91c1c'] : ['#22c55e', '#16a34a']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={[styles.progressBarFill, { width: `${calPercent}%` }]} />
         </View>
       </View>
-      {/* --------------------------------------------- */}
 
       <View style={styles.rangeSelector}>
-        <TouchableOpacity onPress={() => { setTimeRange('day'); loadAllData(); }} style={[styles.rangeBtn, timeRange === 'day' && styles.rangeBtnActive]}><Text style={[styles.rangeText, timeRange === 'day' && styles.rangeTextActive]}>Hoje</Text></TouchableOpacity>
-        <TouchableOpacity onPress={() => { setTimeRange('week'); loadAllData(); }} style={[styles.rangeBtn, timeRange === 'week' && styles.rangeBtnActive]}><Text style={[styles.rangeText, timeRange === 'week' && styles.rangeTextActive]}>7 Dias</Text></TouchableOpacity>
-        <TouchableOpacity onPress={() => { setTimeRange('month'); loadAllData(); }} style={[styles.rangeBtn, timeRange === 'month' && styles.rangeBtnActive]}><Text style={[styles.rangeText, timeRange === 'month' && styles.rangeTextActive]}>30 Dias</Text></TouchableOpacity>
+        <TouchableOpacity onPress={() => setTimeRange('day')} style={[styles.rangeBtn, timeRange === 'day' && styles.rangeBtnActive]}><Text style={[styles.rangeText, timeRange === 'day' && styles.rangeTextActive]}>Hoje</Text></TouchableOpacity>
+        <TouchableOpacity onPress={() => setTimeRange('week')} style={[styles.rangeBtn, timeRange === 'week' && styles.rangeBtnActive]}><Text style={[styles.rangeText, timeRange === 'week' && styles.rangeTextActive]}>7 Dias</Text></TouchableOpacity>
+        <TouchableOpacity onPress={() => setTimeRange('month')} style={[styles.rangeBtn, timeRange === 'month' && styles.rangeBtnActive]}><Text style={[styles.rangeText, timeRange === 'month' && styles.rangeTextActive]}>30 Dias</Text></TouchableOpacity>
       </View>
+      <Text style={styles.rangeLabel}>{stats.label}</Text>
 
       <View style={styles.grid}>
         <TouchableOpacity style={styles.widgetLarge} onPress={() => changeTab('fasting')}>
@@ -169,25 +202,22 @@ export default function HomeScreen({ changeTab }) {
               <Text style={[styles.widgetTitle, isFasting && timeRange === 'day' ? {color:'#fff'} : {color:'#666'}]}>{timeRange === 'day' ? "JEJUM ATUAL" : "JEJUM TOTAL"}</Text>
             </View>
             <Text style={[styles.widgetValueLarge, isFasting && timeRange === 'day' ? {color:'#fff'} : {color:'#333'}]}>{stats.fasting}</Text>
-            <Text style={[styles.widgetSub, isFasting && timeRange === 'day' ? {color:'#fde68a'} : {color:'#888'}]}>{timeRange === 'day' ? (isFasting ? "Em andamento" : "Toque para iniciar") : `Média de ${stats.fastingAvg} por jejum`}</Text>
+            <Text style={[styles.widgetSub, isFasting && timeRange === 'day' ? {color:'#fde68a'} : {color:'#888'}]}>{timeRange === 'day' ? (isFasting ? "Em andamento" : "Toque para iniciar") : `Média de ${stats.fastingAvg}`}</Text>
           </LinearGradient>
         </TouchableOpacity>
 
         <View style={styles.row}>
-          {/* WIDGET DE ÁGUA */}
+          <TouchableOpacity style={styles.widgetSmall} onPress={() => changeTab('meals')}>
+            <View style={styles.widgetHeader}><Feather name="zap" size={18} color="#16a34a" /><Text style={styles.widgetTitleDark}>KCAL</Text></View>
+            <Text style={styles.widgetValue}>{stats.calories}</Text>
+            <Text style={styles.widgetSubDark}>{timeRange === 'day' ? `de ${Math.round(goals.calories)}` : "Média"}</Text>
+            <View style={styles.miniProgressBg}><View style={[styles.miniProgressFill, {width: `${calPercent}%`, backgroundColor: '#16a34a'}]} /></View>
+          </TouchableOpacity>
           <TouchableOpacity style={styles.widgetSmall} onPress={() => changeTab('water')}>
             <View style={styles.widgetHeader}><Feather name="droplet" size={18} color="#2563eb" /><Text style={styles.widgetTitleDark}>ÁGUA</Text></View>
             <Text style={styles.widgetValue}>{stats.water}</Text>
-            <Text style={styles.widgetSubDark}>{timeRange === 'day' ? `de ${Math.round(goals.water)}ml` : "Média diária"}</Text>
+            <Text style={styles.widgetSubDark}>{timeRange === 'day' ? `de ${Math.round(goals.water)}ml` : "Média"}</Text>
             <View style={styles.miniProgressBg}><View style={[styles.miniProgressFill, {width: `${waterPercent}%`, backgroundColor: '#2563eb'}]} /></View>
-          </TouchableOpacity>
-
-          {/* ATALHO RÁPIDO GALERIA */}
-          <TouchableOpacity style={styles.widgetSmall} onPress={() => changeTab('gallery')}>
-             <View style={{flex:1, justifyContent:'center', alignItems:'center'}}>
-                <View style={[styles.iconBox, {backgroundColor: '#ede9fe', width: 50, height: 50}]}><Feather name="camera" size={24} color="#7c3aed" /></View>
-                <Text style={{marginTop: 5, fontWeight: 'bold', color: '#4b5563'}}>Nova Foto</Text>
-             </View>
           </TouchableOpacity>
         </View>
 
@@ -197,7 +227,7 @@ export default function HomeScreen({ changeTab }) {
             <View style={styles.shortcuts}>
               <TouchableOpacity style={styles.shortcutBtn} onPress={() => changeTab('meals')}><View style={[styles.iconBox, {backgroundColor: '#dcfce7'}]}><Feather name="plus" size={24} color="#16a34a" /></View><Text style={styles.shortcutText}>Refeição</Text></TouchableOpacity>
               <TouchableOpacity style={styles.shortcutBtn} onPress={() => changeTab('water')}><View style={[styles.iconBox, {backgroundColor: '#dbeafe'}]}><Feather name="plus" size={24} color="#2563eb" /></View><Text style={styles.shortcutText}>Água</Text></TouchableOpacity>
-              <TouchableOpacity style={styles.shortcutBtn} onPress={() => changeTab('challenges')}><View style={[styles.iconBox, {backgroundColor: '#fff7ed'}]}><Feather name="award" size={24} color="#d97706" /></View><Text style={styles.shortcutText}>Missões</Text></TouchableOpacity>
+              <TouchableOpacity style={styles.shortcutBtn} onPress={() => changeTab('gallery')}><View style={[styles.iconBox, {backgroundColor: '#ede9fe'}]}><Feather name="camera" size={24} color="#7c3aed" /></View><Text style={styles.shortcutText}>Foto</Text></TouchableOpacity>
             </View>
           </>
         )}
@@ -212,7 +242,7 @@ const styles = StyleSheet.create({
   greeting: { fontSize: 22, fontWeight: 'bold', color: '#1f2937', marginBottom: 5 },
   subGreeting: { fontSize: 14, color: '#6b7280' },
   
-  // ESTILOS DA BARRA DE CONSUMO (Copiados do Profile)
+  // ESTILOS DA BARRA DE CONSUMO
   goalCard: { backgroundColor: '#fff', padding: 15, borderRadius: 16, elevation: 3, marginBottom: 15, borderWidth: 1, borderColor: '#f0f0f0' },
   goalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end', marginBottom: 8 },
   goalTitle: { fontSize: 14, fontWeight: 'bold', color: '#333' },
@@ -220,7 +250,15 @@ const styles = StyleSheet.create({
   progressBarBackground: { height: 10, backgroundColor: '#e5e7eb', borderRadius: 6, overflow: 'hidden' },
   progressBarFill: { height: '100%', borderRadius: 6 },
 
-  rangeSelector: { flexDirection: 'row', backgroundColor: '#e5e7eb', borderRadius: 12, padding: 4, marginBottom: 15 },
+  // ESTILOS DO LEVEL
+  levelContainer: { flexDirection: 'row', alignItems: 'center', marginTop: 5 },
+  levelBadge: { backgroundColor: '#1f2937', paddingHorizontal: 8, paddingVertical: 2, borderRadius: 8, marginRight: 8 },
+  levelText: { color: '#fff', fontSize: 10, fontWeight: 'bold' },
+  xpBarBg: { width: 100, height: 8, backgroundColor: '#e5e7eb', borderRadius: 4, overflow: 'hidden', marginRight: 8 },
+  xpBarFill: { height: '100%' },
+  xpText: { fontSize: 10, color: '#666', fontWeight: '600' },
+
+  rangeSelector: { flexDirection: 'row', backgroundColor: '#e5e7eb', borderRadius: 12, padding: 4, marginBottom: 5 },
   rangeBtn: { flex: 1, paddingVertical: 8, alignItems: 'center', borderRadius: 8 },
   rangeBtnActive: { backgroundColor: '#fff', elevation: 2 },
   rangeText: { fontSize: 12, fontWeight: '600', color: '#6b7280' },

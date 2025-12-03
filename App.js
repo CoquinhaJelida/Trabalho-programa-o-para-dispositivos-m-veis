@@ -7,6 +7,7 @@ import { Feather } from '@expo/vector-icons';
 import { SafeAreaProvider, SafeAreaView as SafeAreaContext } from 'react-native-safe-area-context';
 import * as NavigationBar from 'expo-navigation-bar'; 
 
+// Importação das Telas
 import Header from './src/components/Header';
 import HomeScreen from './src/screens/HomeScreen';
 import MealsScreen from './src/screens/MealsScreen';
@@ -15,7 +16,7 @@ import ProfileScreen from './src/screens/ProfileScreen';
 import GalleryScreen from './src/screens/GalleryScreen';
 import FastingScreen from './src/screens/FastingScreen';
 import CommunityScreen from './src/screens/CommunityScreen';
-import ChallengesScreen from './src/screens/ChallengesScreen'; // <--- NOVO IMPORT
+import ChallengesScreen from './src/screens/ChallengesScreen';
 
 import { motivationalMessages } from './src/data/motivation';
 
@@ -49,7 +50,7 @@ export default function App() {
     if (currentTab === 'gallery') return ['#f5f3ff', '#ede9fe']; 
     if (currentTab === 'fasting') return ['#fffbeb', '#fef3c7']; 
     if (currentTab === 'community') return ['#f0f9ff', '#e0f2fe'];
-    if (currentTab === 'challenges') return ['#fff7ed', '#ffedd5']; // <--- COR AMARELA
+    if (currentTab === 'challenges') return ['#fff7ed', '#ffedd5'];
     return ['#f0fdf4', '#eff6ff']; 
   };
 
@@ -58,7 +59,7 @@ export default function App() {
     if (currentTab === 'gallery') return '#7c3aed';
     if (currentTab === 'fasting') return '#d97706';
     if (currentTab === 'community') return '#0284c7';
-    if (currentTab === 'challenges') return '#b45309'; // <--- COR AMARELA ESCURA
+    if (currentTab === 'challenges') return '#b45309';
     return '#16a34a';
   };
 
@@ -70,24 +71,49 @@ export default function App() {
 
         <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={{ flex: 1 }}>
           <View style={{ flex: 1 }}>
-            <Header />
+            
+            {/* HEADER COM PERFIL CLICÁVEL */}
+            <Header onProfileClick={() => setCurrentTab('profile')} />
 
             <View style={styles.tabContainer}>
               <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{flexGrow: 1}}>
-                <TouchableOpacity onPress={() => setCurrentTab('home')} style={[styles.tabBtn, currentTab === 'home' && styles.activeTabGreen]}><Feather name="home" size={18} color={currentTab === 'home' ? '#fff' : '#4b5563'} /><Text style={[styles.tabText, currentTab === 'home' && { color: '#fff' }]}>Início</Text></TouchableOpacity>
-                <TouchableOpacity onPress={() => setCurrentTab('profile')} style={[styles.tabBtn, currentTab === 'profile' && styles.activeTabGreen]}><Feather name="user" size={18} color={currentTab === 'profile' ? '#fff' : '#4b5563'} /><Text style={[styles.tabText, currentTab === 'profile' && { color: '#fff' }]}>Perfil</Text></TouchableOpacity>
                 
-                {/* NOVA ABA DESAFIOS */}
+                <TouchableOpacity onPress={() => setCurrentTab('home')} style={[styles.tabBtn, currentTab === 'home' && styles.activeTabGreen]}>
+                  <Feather name="home" size={18} color={currentTab === 'home' ? '#fff' : '#4b5563'} />
+                  <Text style={[styles.tabText, currentTab === 'home' && { color: '#fff' }]}>Início</Text>
+                </TouchableOpacity>
+
+                {/* NOTA: O BOTÃO PERFIL FOI REMOVIDO DAQUI */}
+
+                <TouchableOpacity onPress={() => setCurrentTab('meals')} style={[styles.tabBtn, currentTab === 'meals' && styles.activeTabGreen]}>
+                  <Feather name="coffee" size={18} color={currentTab === 'meals' ? '#fff' : '#4b5563'} />
+                  <Text style={[styles.tabText, currentTab === 'meals' && { color: '#fff' }]}>Refeições</Text>
+                </TouchableOpacity>
+
                 <TouchableOpacity onPress={() => setCurrentTab('challenges')} style={[styles.tabBtn, currentTab === 'challenges' && styles.activeTabGold]}>
                   <Feather name="award" size={18} color={currentTab === 'challenges' ? '#fff' : '#4b5563'} />
                   <Text style={[styles.tabText, currentTab === 'challenges' && { color: '#fff' }]}>Desafios</Text>
                 </TouchableOpacity>
 
-                <TouchableOpacity onPress={() => setCurrentTab('meals')} style={[styles.tabBtn, currentTab === 'meals' && styles.activeTabGreen]}><Feather name="coffee" size={18} color={currentTab === 'meals' ? '#fff' : '#4b5563'} /><Text style={[styles.tabText, currentTab === 'meals' && { color: '#fff' }]}>Refeições</Text></TouchableOpacity>
-                <TouchableOpacity onPress={() => setCurrentTab('community')} style={[styles.tabBtn, currentTab === 'community' && styles.activeTabCommunity]}><Feather name="users" size={18} color={currentTab === 'community' ? '#fff' : '#4b5563'} /><Text style={[styles.tabText, currentTab === 'community' && { color: '#fff' }]}>Social</Text></TouchableOpacity>
-                <TouchableOpacity onPress={() => setCurrentTab('water')} style={[styles.tabBtn, currentTab === 'water' && styles.activeTabBlue]}><Feather name="droplet" size={18} color={currentTab === 'water' ? '#fff' : '#4b5563'} /><Text style={[styles.tabText, currentTab === 'water' && { color: '#fff' }]}>Água</Text></TouchableOpacity>
-                <TouchableOpacity onPress={() => setCurrentTab('fasting')} style={[styles.tabBtn, currentTab === 'fasting' && styles.activeTabOrange]}><Feather name="clock" size={18} color={currentTab === 'fasting' ? '#fff' : '#4b5563'} /><Text style={[styles.tabText, currentTab === 'fasting' && { color: '#fff' }]}>Jejum</Text></TouchableOpacity>
-                <TouchableOpacity onPress={() => setCurrentTab('gallery')} style={[styles.tabBtn, currentTab === 'gallery' && styles.activeTabPurple]}><Feather name="camera" size={18} color={currentTab === 'gallery' ? '#fff' : '#4b5563'} /><Text style={[styles.tabText, currentTab === 'gallery' && { color: '#fff' }]}>Galeria</Text></TouchableOpacity>
+                <TouchableOpacity onPress={() => setCurrentTab('community')} style={[styles.tabBtn, currentTab === 'community' && styles.activeTabCommunity]}>
+                  <Feather name="users" size={18} color={currentTab === 'community' ? '#fff' : '#4b5563'} />
+                  <Text style={[styles.tabText, currentTab === 'community' && { color: '#fff' }]}>Social</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity onPress={() => setCurrentTab('water')} style={[styles.tabBtn, currentTab === 'water' && styles.activeTabBlue]}>
+                  <Feather name="droplet" size={18} color={currentTab === 'water' ? '#fff' : '#4b5563'} />
+                  <Text style={[styles.tabText, currentTab === 'water' && { color: '#fff' }]}>Água</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity onPress={() => setCurrentTab('fasting')} style={[styles.tabBtn, currentTab === 'fasting' && styles.activeTabOrange]}>
+                  <Feather name="clock" size={18} color={currentTab === 'fasting' ? '#fff' : '#4b5563'} />
+                  <Text style={[styles.tabText, currentTab === 'fasting' && { color: '#fff' }]}>Jejum</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity onPress={() => setCurrentTab('gallery')} style={[styles.tabBtn, currentTab === 'gallery' && styles.activeTabPurple]}>
+                  <Feather name="camera" size={18} color={currentTab === 'gallery' ? '#fff' : '#4b5563'} />
+                  <Text style={[styles.tabText, currentTab === 'gallery' && { color: '#fff' }]}>Galeria</Text>
+                </TouchableOpacity>
               </ScrollView>
             </View>
 
@@ -148,7 +174,7 @@ const styles = StyleSheet.create({
   modalText: { fontSize: 20, fontWeight: 'bold', color: '#374151', textAlign: 'center', marginBottom: 25, fontStyle: 'italic', lineHeight: 28 },
   modalButton: { backgroundColor: '#16a34a', paddingVertical: 12, paddingHorizontal: 40, borderRadius: 25, elevation: 3 },
   modalButtonText: { color: '#fff', fontWeight: 'bold', fontSize: 16 },
-  xpToast: { position: 'absolute', top: 0, alignSelf: 'center', backgroundColor: '#1f2937', flexDirection: 'row', alignItems: 'center', paddingVertical: 10, paddingHorizontal: 20, borderRadius: 30, elevation: 10, shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 5, zIndex: 9999 },
+  xpToast: { position: 'absolute', top: 110, alignSelf: 'center', backgroundColor: '#1f2937', flexDirection: 'row', alignItems: 'center', paddingVertical: 10, paddingHorizontal: 20, borderRadius: 30, elevation: 10, shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 5, zIndex: 9999 },
   xpBadge: { backgroundColor: '#f59e0b', borderRadius: 15, width: 24, height: 24, alignItems: 'center', justifyContent: 'center', marginRight: 10 },
   xpText: { color: '#f59e0b', fontWeight: 'bold', fontSize: 16 },
   xpSubText: { color: '#fff', fontSize: 14, marginLeft: 8, fontWeight: '600' }
