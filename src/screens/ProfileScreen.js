@@ -1,25 +1,24 @@
 import React, { useState, useEffect } from 'react';
 import { 
-  View, Text, TextInput, StyleSheet, ScrollView, Switch, TouchableOpacity, Alert 
+  View, Text, TextInput, StyleSheet, ScrollView, Switch, TouchableOpacity, Alert, Image 
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Feather } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage'; 
-import { saveProfile, getProfile, getHistory, getDayLog, getTodayKey, getCalorieStreak, deleteDailyLog } from '../services/db';
+import { saveProfile, getProfile, getHistory, getDayLog, getTodayKey, getCalorieStreak, deleteDailyLog, getChallengeStatus } from '../services/db';
+// Importa as Quests para exibir as medalhas
+import { QUESTS } from '../data/quests';
 
 export default function ProfileScreen() {
-  // Dados Básicos
   const [name, setName] = useState('');
   const [age, setAge] = useState('');
   const [weight, setWeight] = useState('');
   const [height, setHeight] = useState('');
   const [targetWeight, setTargetWeight] = useState(''); 
-  
-  // --- NOVOS DADOS METABÓLICOS ---
-  const [gender, setGender] = useState('male'); // 'male' ou 'female'
-  const [activityLevel, setActivityLevel] = useState(1.2); // 1.2 (sedentário) a 1.9 (atleta)
-  const [objective, setObjective] = useState('maintain'); // 'lose', 'maintain', 'gain'
-  const [macros, setMacros] = useState({ p: 0, c: 0, f: 0 }); // Proteína, Carbo, Gordura sugeridos
+  const [gender, setGender] = useState('male');
+  const [activityLevel, setActivityLevel] = useState(1.2);
+  const [objective, setObjective] = useState('maintain');
+  const [macros, setMacros] = useState({ p: 0, c: 0, f: 0 });
   
   const [calorieGoal, setCalorieGoal] = useState('2000');
   const [isStrict, setIsStrict] = useState(false); 
@@ -29,6 +28,9 @@ export default function ProfileScreen() {
   const [todayWater, setTodayWater] = useState(0);
   const [history, setHistory] = useState({});
   const [expandedDate, setExpandedDate] = useState(null);
+  
+  // NOVO: Estado das Medalhas
+  const [earnedBadges, setEarnedBadges] = useState({});
 
   useEffect(() => {
     loadAllData();
@@ -44,13 +46,9 @@ export default function ProfileScreen() {
         setCalorieGoal(data.calorieGoal || '2000');
         setIsStrict(data.isStrict || false);
         setTargetWeight(data.targetWeight || '');
-        
-        // Carrega novos campos
         setGender(data.gender || 'male');
         setActivityLevel(data.activityLevel || 1.2);
         setObjective(data.objective || 'maintain');
-        
-        // Recalcula macros visuais ao carregar
         calculateMacros(data.calorieGoal || '2000', data.objective || 'maintain');
       }
     });
@@ -62,89 +60,51 @@ export default function ProfileScreen() {
       setTodayWater(data.water || 0);
     });
 
-    getHistory((data) => {
-      setHistory(data);
-    });
+    getHistory(setHistory);
+    
+    // Carrega as medalhas conquistadas
+    getChallengeStatus(setEarnedBadges);
   };
 
   useEffect(() => {
     const goal = parseFloat(calorieGoal) || 2000;
-    getCalorieStreak(goal, isStrict, (result) => {
-      setCalorieStreak(result);
-    });
+    getCalorieStreak(goal, isStrict, setCalorieStreak);
   }, [todayCalories, calorieGoal, isStrict]);
 
-  // Salva automaticamente
   useEffect(() => {
     if (name || age || weight || height || calorieGoal) {
-      saveProfile({ 
-        name, age, weight, height, calorieGoal, isStrict, targetWeight, 
-        gender, activityLevel, objective // Salva os novos campos
-      });
+      saveProfile({ name, age, weight, height, calorieGoal, isStrict, targetWeight, gender, activityLevel, objective });
     }
   }, [name, age, weight, height, calorieGoal, isStrict, targetWeight, gender, activityLevel, objective]);
 
-  // --- A MÁGICA: CÁLCULO AUTOMÁTICO ---
   const handleAutoCalculate = () => {
-    const w = parseFloat(weight);
-    const h = parseFloat(height);
-    const a = parseFloat(age);
-
-    if (!w || !h || !a) {
-      Alert.alert("Dados incompletos", "Preencha Idade, Peso e Altura para calcular.");
-      return;
-    }
-
-    // 1. BMR (Mifflin-St Jeor)
+    const w = parseFloat(weight); const h = parseFloat(height); const a = parseFloat(age);
+    if (!w || !h || !a) { Alert.alert("Dados incompletos", "Preencha tudo."); return; }
     let bmr = (10 * w) + (6.25 * h) - (5 * a);
-    if (gender === 'male') bmr += 5;
-    else bmr -= 161;
-
-    // 2. TDEE (Gasto Total)
+    if (gender === 'male') bmr += 5; else bmr -= 161;
     const tdee = bmr * activityLevel;
-
-    // 3. Ajuste pelo Objetivo
     let finalCalories = tdee;
-    if (objective === 'lose') finalCalories -= 400; // Déficit moderado
-    if (objective === 'lose_fast') finalCalories -= 600; // Déficit agressivo
-    if (objective === 'gain') finalCalories += 300; // Superávit leve
-
-    // Arredonda
+    if (objective === 'lose') finalCalories -= 400;
+    if (objective === 'gain') finalCalories += 300;
     const roundedCals = Math.round(finalCalories);
-    
     setCalorieGoal(String(roundedCals));
     calculateMacros(roundedCals, objective);
-    
-    Alert.alert("Calculado!", `Sua meta ideal é de ${roundedCals} kcal/dia baseada no seu perfil.`);
+    Alert.alert("Calculado!", `Sua meta ideal é de ${roundedCals} kcal/dia.`);
   };
 
-  // Calcula divisão de macros (Sugestão)
   const calculateMacros = (cals, obj) => {
     const total = parseFloat(cals);
-    let pSplit = 0.30; // 30% Prot
-    let fSplit = 0.30; // 30% Gord
-    let cSplit = 0.40; // 40% Carb
-
-    // Ajuste fino por objetivo
-    if (obj === 'lose' || obj === 'lose_fast') {
-      pSplit = 0.40; cSplit = 0.30; fSplit = 0.30; // Mais proteína no cutting
-    } else if (obj === 'gain') {
-      pSplit = 0.30; cSplit = 0.50; fSplit = 0.20; // Mais carbo no bulking
-    }
-
-    setMacros({
-      p: Math.round((total * pSplit) / 4), // 1g prot = 4kcal
-      c: Math.round((total * cSplit) / 4), // 1g carb = 4kcal
-      f: Math.round((total * fSplit) / 9), // 1g fat = 9kcal
-    });
+    let pSplit = 0.30; let fSplit = 0.30; let cSplit = 0.40;
+    if (obj === 'lose') { pSplit = 0.40; cSplit = 0.30; fSplit = 0.30; } 
+    else if (obj === 'gain') { pSplit = 0.30; cSplit = 0.50; fSplit = 0.20; }
+    setMacros({ p: Math.round((total * pSplit) / 4), c: Math.round((total * cSplit) / 4), f: Math.round((total * fSplit) / 9) });
   };
 
-  // --- OUTROS ---
-  const handleDeleteDay = (date) => { Alert.alert("Apagar Dia", "Tem certeza?", [{ text: "Cancelar", style: "cancel" }, { text: "Apagar", style: "destructive", onPress: () => { deleteDailyLog(date, () => { loadAllData(); }); } }]); };
-  const handleResetApp = () => { Alert.alert("Zerar Tudo", "Isso apaga TUDO. Certeza?", [{ text: "Cancelar", style: "cancel" }, { text: "ZERAR", style: "destructive", onPress: async () => { await AsyncStorage.clear(); Alert.alert("Resetado", "Reinicie o app."); } }]); };
+  const handleDeleteDay = (date) => { Alert.alert("Apagar Dia", "Tem certeza?", [{ text: "Cancelar", style: "cancel" }, { text: "Apagar", style: "destructive", onPress: () => deleteDailyLog(date, loadAllData) }]); };
+  const handleResetApp = () => { Alert.alert("Zerar Tudo", "Certeza?", [{ text: "Cancelar", style: "cancel" }, { text: "ZERAR", style: "destructive", onPress: async () => { await AsyncStorage.clear(); Alert.alert("Resetado", "Reinicie."); } }]); };
   const calculateBMI = () => { const h = parseFloat(height) / 100; const w = parseFloat(weight); if (!h || !w || isNaN(h) || isNaN(w)) return null; return (w / (h * h)).toFixed(1); };
   const bmi = calculateBMI();
-  const getBMIStatus = (v) => { if (v < 18.5) return { label: 'Abaixo do peso', color: '#3b82f6' }; if (v < 24.9) return { label: 'Peso Normal', color: '#16a34a' }; if (v < 29.9) return { label: 'Sobrepeso', color: '#eab308' }; return { label: 'Obesidade', color: '#ef4444' }; };
+  const getBMIStatus = (v) => { if (v < 18.5) return { label: 'Abaixo', color: '#3b82f6' }; if (v < 24.9) return { label: 'Normal', color: '#16a34a' }; if (v < 29.9) return { label: 'Sobrepeso', color: '#eab308' }; return { label: 'Obesidade', color: '#ef4444' }; };
   const waterGoal = weight ? (parseFloat(weight) * 35).toFixed(0) : 0;
   const goal = parseFloat(calorieGoal) || 2000;
   const progressPercent = goal > 0 ? Math.min((todayCalories / goal) * 100, 100) : 0;
@@ -155,92 +115,87 @@ export default function ProfileScreen() {
   const isBroken = isStrict && (todayCalories >= goal * 1.5);
   const weightDiff = (weight && targetWeight) ? (parseFloat(weight) - parseFloat(targetWeight)).toFixed(1) : null;
 
+  // Filtra apenas as quests completadas
+  const myBadges = QUESTS.filter(q => earnedBadges[q.id]);
+
   return (
     <ScrollView contentContainerStyle={styles.container}>
       
-      {/* BANNERS (Mantidos) */}
-      {showStrictBanner && (<View style={[styles.messageCard, isBroken ? { backgroundColor: '#1f2937' } : (calorieStreak.status === 'bad' ? styles.messageBad : styles.messageGood)]}><Feather name={isBroken ? "zap-off" : (calorieStreak.status === 'bad' ? "alert-triangle" : "check-circle")} size={24} color="#fff" /><View style={{flex: 1, marginLeft: 10}}><Text style={styles.messageTitle}>{isBroken ? "SOCORRO! 😱" : (calorieStreak.status === 'bad' ? "Foco na meta!" : "Mandou bem!")}</Text><Text style={styles.messageText}>{isBroken ? "Você quebrou a barra de progresso!" : (calorieStreak.status === 'bad' ? `Você está a ${calorieStreak.count} dia(s) fora de foco 👎` : `Você está a ${calorieStreak.count} dia(s) focado(a).`)}</Text></View></View>)}
-      {showFlexBanner && (<View style={[styles.messageCard, styles.messageGood]}><Feather name="trending-up" size={24} color="#fff" /><View style={{flex: 1, marginLeft: 10}}><Text style={styles.messageTitle}>Parabéns!</Text><Text style={styles.messageText}>Continue focado. Você está a {calorieStreak.count} dia(s) no foco.</Text></View></View>)}
+      {showStrictBanner && (
+        <View style={[styles.messageCard, isBroken ? { backgroundColor: '#1f2937' } : (calorieStreak.status === 'bad' ? styles.messageBad : styles.messageGood)]}>
+          <Feather name={isBroken ? "zap-off" : (calorieStreak.status === 'bad' ? "alert-triangle" : "check-circle")} size={24} color="#fff" />
+          <View style={{flex: 1, marginLeft: 10}}>
+            <Text style={styles.messageTitle}>{isBroken ? "SOCORRO! 😱" : (calorieStreak.status === 'bad' ? "Foco na meta!" : "Mandou bem!")}</Text>
+            <Text style={styles.messageText}>{isBroken ? "Barra quebrada!" : (calorieStreak.status === 'bad' ? `Você está a ${calorieStreak.count} dias fora.` : `Você está a ${calorieStreak.count} dias focado.`)}</Text>
+          </View>
+        </View>
+      )}
+      {showFlexBanner && (
+        <View style={[styles.messageCard, styles.messageGood]}>
+          <Feather name="trending-up" size={24} color="#fff" />
+          <View style={{flex: 1, marginLeft: 10}}><Text style={styles.messageTitle}>Parabéns!</Text><Text style={styles.messageText}>Você está a {calorieStreak.count} dias no foco.</Text></View>
+        </View>
+      )}
 
       <View style={styles.goalCard}>
         <View style={styles.goalHeader}><Text style={styles.goalTitle}>Consumo Diário</Text><Text style={styles.goalValues}>{Math.round(todayCalories)} <Text style={{fontSize: 14, color: '#888'}}>/ {goal} kcal</Text></Text></View>
-        {isBroken ? (<View style={styles.brokenContainer}><View style={styles.brokenLeft}><LinearGradient colors={['#7f1d1d', '#b91c1c']} style={{flex: 1, borderRadius: 6}} /></View><Text style={styles.explosion}>💥</Text><View style={styles.brokenRight}><LinearGradient colors={['#b91c1c', '#7f1d1d']} style={{flex: 1, borderRadius: 6}} /></View></View>) : (<View style={styles.progressBarBackground}><LinearGradient colors={todayCalories > goal && isStrict ? ['#ef4444', '#b91c1c'] : ['#22c55e', '#16a34a']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={[styles.progressBarFill, { width: `${progressPercent}%` }]} /></View>)}
-        <Text style={[styles.goalSubtitle, todayCalories > goal && isStrict && {color: '#ef4444'}]}>{todayCalories > goal ? `Excedeu ${Math.round(todayCalories - goal)} kcal` : `Restam ${Math.round(goal - todayCalories)} kcal`}</Text>
+        {isBroken ? (
+          <View style={styles.brokenContainer}><View style={styles.brokenLeft}><LinearGradient colors={['#7f1d1d', '#b91c1c']} style={{flex: 1, borderRadius: 6}} /></View><Text style={styles.explosion}>💥</Text><View style={styles.brokenRight}><LinearGradient colors={['#b91c1c', '#7f1d1d']} style={{flex: 1, borderRadius: 6}} /></View></View>
+        ) : (
+          <View style={styles.progressBarBackground}><LinearGradient colors={todayCalories > goal && isStrict ? ['#ef4444', '#b91c1c'] : ['#22c55e', '#16a34a']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={[styles.progressBarFill, { width: `${progressPercent}%` }]} /></View>
+        )}
+      </View>
+
+      {/* --- SEÇÃO DE MEDALHAS (NOVA) --- */}
+      <View style={styles.badgeSection}>
+        <Text style={styles.cardTitle}>Minhas Conquistas 🏅</Text>
+        {myBadges.length === 0 ? (
+          <Text style={styles.emptyBadges}>Complete desafios para ganhar medalhas!</Text>
+        ) : (
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{marginTop: 10}}>
+            {myBadges.map(quest => (
+              <View key={quest.id} style={styles.badgeItem}>
+                <LinearGradient colors={quest.color} style={styles.badgeIcon}>
+                  <Feather name={quest.icon} size={24} color="#fff" />
+                </LinearGradient>
+                <Text style={styles.badgeText}>{quest.title}</Text>
+              </View>
+            ))}
+          </ScrollView>
+        )}
       </View>
 
       <View style={styles.card}>
         <Text style={styles.cardTitle}>Dados Pessoais</Text>
-        <Text style={styles.label}>Nome</Text><TextInput style={styles.input} value={name} onChangeText={setName} placeholder="Seu nome" placeholderTextColor="#9ca3af" />
-        <View style={styles.row}><View style={styles.halfInput}><Text style={styles.label}>Idade</Text><TextInput style={styles.input} value={age} onChangeText={setAge} keyboardType="numeric" /></View><View style={styles.halfInput}><Text style={styles.label}>Altura (cm)</Text><TextInput style={styles.input} value={height} onChangeText={setHeight} keyboardType="numeric" /></View></View>
-        <View style={styles.row}><View style={styles.halfInput}><Text style={styles.label}>Peso (kg)</Text><TextInput style={styles.input} value={weight} onChangeText={setWeight} keyboardType="numeric" /></View><View style={styles.halfInput}><Text style={styles.label}>Meta Peso (kg)</Text><TextInput style={[styles.input, { borderColor: '#3b82f6', color: '#3b82f6', fontWeight: 'bold' }]} value={targetWeight} onChangeText={setTargetWeight} keyboardType="numeric" /></View></View>
-        
-        {/* --- CALCULADORA METABÓLICA --- */}
-        <View style={{marginTop: 10, marginBottom: 20, padding: 15, backgroundColor: '#f0f9ff', borderRadius: 12, borderWidth: 1, borderColor: '#bae6fd'}}>
-          <Text style={{color:'#0369a1', fontWeight:'bold', marginBottom: 10}}>Calculadora de Meta (TDEE)</Text>
-          
-          <Text style={styles.label}>Gênero</Text>
+        <Text style={styles.label}>Nome</Text><TextInput style={styles.input} value={name} onChangeText={setName} placeholder="Nome" placeholderTextColor="#9ca3af" />
+        <View style={styles.row}><View style={styles.halfInput}><Text style={styles.label}>Idade</Text><TextInput style={styles.input} value={age} onChangeText={setAge} keyboardType="numeric" placeholderTextColor="#9ca3af" /></View><View style={styles.halfInput}><Text style={styles.label}>Altura</Text><TextInput style={styles.input} value={height} onChangeText={setHeight} keyboardType="numeric" placeholderTextColor="#9ca3af" /></View></View>
+        <View style={styles.row}><View style={styles.halfInput}><Text style={styles.label}>Peso</Text><TextInput style={styles.input} value={weight} onChangeText={setWeight} keyboardType="numeric" placeholderTextColor="#9ca3af" /></View><View style={styles.halfInput}><Text style={styles.label}>Meta Peso</Text><TextInput style={[styles.input, { borderColor: '#3b82f6', color: '#3b82f6' }]} value={targetWeight} onChangeText={setTargetWeight} keyboardType="numeric" placeholderTextColor="#9ca3af" /></View></View>
+        {weightDiff !== null && <Text style={{ color: '#666', fontSize: 12, textAlign: 'center', marginTop: -10, marginBottom: 15 }}>{parseFloat(weightDiff) > 0 ? `📉 Falta ${weightDiff} kg` : `🎉 Meta atingida!`}</Text>}
+
+        <View style={{marginTop: 10, padding: 15, backgroundColor: '#f0f9ff', borderRadius: 12, borderWidth: 1, borderColor: '#bae6fd'}}>
+          <Text style={{color:'#0369a1', fontWeight:'bold', marginBottom: 10}}>Calculadora TDEE</Text>
           <View style={styles.selectRow}>
-            <TouchableOpacity style={[styles.selectBtn, gender === 'male' && styles.selectBtnActive]} onPress={() => setGender('male')}><Text style={[styles.selectText, gender === 'male' && styles.selectTextActive]}>Homem</Text></TouchableOpacity>
-            <TouchableOpacity style={[styles.selectBtn, gender === 'female' && styles.selectBtnActive]} onPress={() => setGender('female')}><Text style={[styles.selectText, gender === 'female' && styles.selectTextActive]}>Mulher</Text></TouchableOpacity>
+            <TouchableOpacity style={[styles.selectBtn, gender==='male'&&styles.selectBtnActive]} onPress={()=>setGender('male')}><Text style={[styles.selectText, gender==='male'&&styles.selectTextActive]}>Homem</Text></TouchableOpacity>
+            <TouchableOpacity style={[styles.selectBtn, gender==='female'&&styles.selectBtnActive]} onPress={()=>setGender('female')}><Text style={[styles.selectText, gender==='female'&&styles.selectTextActive]}>Mulher</Text></TouchableOpacity>
           </View>
-
-          <Text style={styles.label}>Nível de Atividade</Text>
-          <View style={{flexDirection:'row', flexWrap:'wrap', gap: 5, marginBottom: 10}}>
-            {[
-              {l:'Sedentário', v:1.2}, {l:'Leve', v:1.375}, {l:'Moderado', v:1.55}, {l:'Intenso', v:1.725}
-            ].map(item => (
-              <TouchableOpacity key={item.v} style={[styles.chip, activityLevel===item.v && styles.chipActive]} onPress={()=>setActivityLevel(item.v)}>
-                <Text style={[styles.chipText, activityLevel===item.v && styles.chipTextActive]}>{item.l}</Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-
-          <Text style={styles.label}>Objetivo</Text>
+          <View style={{flexDirection:'row', flexWrap:'wrap', gap: 5, marginBottom: 10}}>{[{l:'Sedentário', v:1.2}, {l:'Leve', v:1.375}, {l:'Moderado', v:1.55}, {l:'Intenso', v:1.725}].map(i=>(<TouchableOpacity key={i.v} style={[styles.chip, activityLevel===i.v&&styles.chipActive]} onPress={()=>setActivityLevel(i.v)}><Text style={[styles.chipText, activityLevel===i.v&&styles.chipTextActive]}>{i.l}</Text></TouchableOpacity>))}</View>
           <View style={styles.selectRow}>
-             <TouchableOpacity style={[styles.selectBtn, objective==='lose' && styles.selectBtnActive]} onPress={()=>setObjective('lose')}><Text style={[styles.selectText, objective==='lose' && styles.selectTextActive]}>Secar</Text></TouchableOpacity>
-             <TouchableOpacity style={[styles.selectBtn, objective==='maintain' && styles.selectBtnActive]} onPress={()=>setObjective('maintain')}><Text style={[styles.selectText, objective==='maintain' && styles.selectTextActive]}>Manter</Text></TouchableOpacity>
-             <TouchableOpacity style={[styles.selectBtn, objective==='gain' && styles.selectBtnActive]} onPress={()=>setObjective('gain')}><Text style={[styles.selectText, objective==='gain' && styles.selectTextActive]}>Crescer</Text></TouchableOpacity>
+             <TouchableOpacity style={[styles.selectBtn, objective==='lose'&&styles.selectBtnActive]} onPress={()=>setObjective('lose')}><Text style={[styles.selectText, objective==='lose'&&styles.selectTextActive]}>Secar</Text></TouchableOpacity>
+             <TouchableOpacity style={[styles.selectBtn, objective==='maintain'&&styles.selectBtnActive]} onPress={()=>setObjective('maintain')}><Text style={[styles.selectText, objective==='maintain'&&styles.selectTextActive]}>Manter</Text></TouchableOpacity>
+             <TouchableOpacity style={[styles.selectBtn, objective==='gain'&&styles.selectBtnActive]} onPress={()=>setObjective('gain')}><Text style={[styles.selectText, objective==='gain'&&styles.selectTextActive]}>Crescer</Text></TouchableOpacity>
           </View>
-
-          <TouchableOpacity style={styles.calcButton} onPress={handleAutoCalculate}>
-             <Feather name="cpu" size={20} color="#fff" />
-             <Text style={{color:'#fff', fontWeight:'bold', marginLeft: 8}}>Calcular Meta Ideal</Text>
-          </TouchableOpacity>
-
-          {/* SUGESTÃO DE MACROS */}
-          <View style={styles.macroSuggestion}>
-            <Text style={styles.macroTitle}>Sugestão de Macros:</Text>
-            <View style={styles.macroRow}>
-               <Text style={styles.macroItem}>🥩 {macros.p}g Prot</Text>
-               <Text style={styles.macroItem}>🥔 {macros.c}g Carb</Text>
-               <Text style={styles.macroItem}>🥑 {macros.f}g Gord</Text>
-            </View>
-          </View>
+          <TouchableOpacity style={styles.calcButton} onPress={handleAutoCalculate}><Feather name="cpu" size={20} color="#fff" /><Text style={{color:'#fff', fontWeight:'bold', marginLeft: 8}}>Calcular Meta</Text></TouchableOpacity>
+          <View style={styles.macroSuggestion}><Text style={styles.macroTitle}>Sugestão:</Text><View style={styles.macroRow}><Text style={styles.macroItem}>🥩 {macros.p}g P</Text><Text style={styles.macroItem}>🥔 {macros.c}g C</Text><Text style={styles.macroItem}>🥑 {macros.f}g G</Text></View></View>
         </View>
-        {/* ----------------------------- */}
 
-        <Text style={styles.label}>Meta Diária Definida</Text>
-        <TextInput style={[styles.input, { borderColor: '#16a34a', color: '#16a34a', fontWeight: 'bold', fontSize: 18, textAlign: 'center' }]} value={calorieGoal} onChangeText={setCalorieGoal} keyboardType="numeric" placeholder="2000" />
-
-        <View style={styles.switchRow}>
-          <View style={{flex: 1}}><Text style={styles.switchTitle}>Modo Rígido</Text><Text style={styles.switchDesc}>Ative se sua meta for um limite máximo.</Text></View>
-          <Switch value={isStrict} onValueChange={setIsStrict} trackColor={{ false: "#767577", true: "#ef4444" }} thumbColor={isStrict ? "#fff" : "#f4f3f4"} />
-        </View>
+        <Text style={styles.label}>Meta Kcal</Text><TextInput style={[styles.input, { borderColor: '#16a34a', color: '#16a34a', fontWeight: 'bold', textAlign: 'center' }]} value={calorieGoal} onChangeText={setCalorieGoal} keyboardType="numeric" />
+        <View style={styles.switchRow}><View style={{flex: 1}}><Text style={styles.switchTitle}>Modo Rígido</Text><Text style={styles.switchDesc}>Meta como teto máximo.</Text></View><Switch value={isStrict} onValueChange={setIsStrict} trackColor={{ false: "#767577", true: "#ef4444" }} thumbColor={isStrict ? "#fff" : "#f4f3f4"} /></View>
       </View>
 
-      {bmi && (
-        <View style={styles.resultsContainer}>
-          <LinearGradient colors={['#f0fdf4', '#dcfce7']} style={[styles.resultCard, { borderColor: getBMIStatus(bmi).color }]}>
-            <Text style={styles.resultLabel}>IMC</Text><Text style={[styles.resultValue, { color: getBMIStatus(bmi).color }]}>{bmi}</Text><Text style={styles.resultStatus}>{getBMIStatus(bmi).label}</Text>
-          </LinearGradient>
-          <LinearGradient colors={['#eff6ff', '#dbeafe']} style={[styles.resultCard, { borderColor: '#3b82f6' }]}>
-            <Text style={styles.resultLabel}>Meta Água</Text><Text style={[styles.resultValue, { color: '#2563eb' }]}>{waterGoal}</Text><Text style={styles.resultStatus}>ml / dia</Text>
-          </LinearGradient>
-        </View>
-      )}
+      {bmi && <View style={styles.resultsContainer}><LinearGradient colors={['#f0fdf4', '#dcfce7']} style={[styles.resultCard, { borderColor: getBMIStatus(bmi).color }]}><Text style={styles.resultLabel}>IMC</Text><Text style={[styles.resultValue, { color: getBMIStatus(bmi).color }]}>{bmi}</Text><Text style={styles.resultStatus}>{getBMIStatus(bmi).label}</Text></LinearGradient><LinearGradient colors={['#eff6ff', '#dbeafe']} style={[styles.resultCard, { borderColor: '#3b82f6' }]}><Text style={styles.resultLabel}>Meta Água</Text><Text style={[styles.resultValue, { color: '#2563eb' }]}>{waterGoal}</Text><Text style={styles.resultStatus}>ml</Text></LinearGradient></View>}
 
       <Text style={styles.historyTitle}>Histórico</Text>
-      {sortedDates.length === 0 ? <Text style={styles.emptyHistory}>Nenhum registro encontrado ainda.</Text> : sortedDates.map(date => {
+      {sortedDates.map(date => {
         const dayData = history[date];
         const isExpanded = expandedDate === date;
         const dayMeals = dayData.meals || [];
@@ -252,14 +207,12 @@ export default function ProfileScreen() {
               <View style={styles.headerInfo}><Text style={styles.headerKcal}>{Math.round(dayTotal)} kcal</Text><Text style={styles.headerWater}>💧 {dayData.water || 0} ml</Text></View>
               <Feather name={isExpanded ? "chevron-up" : "chevron-down"} size={20} color="#666" />
             </TouchableOpacity>
-            {isExpanded && (<View style={styles.historyDetails}>{dayMeals.length > 0 ? dayMeals.map((meal, idx) => (<View key={idx} style={styles.mealRow}><Text style={styles.mealName}>• {meal.name}</Text><Text style={styles.mealCal}>{meal.calories} kcal</Text></View>)) : <Text style={styles.noMealText}>Sem refeições.</Text>}<TouchableOpacity style={styles.deleteDayButton} onPress={() => handleDeleteDay(date)}><Feather name="trash-2" size={16} color="#ef4444" /><Text style={styles.deleteDayText}>Apagar Registro do Dia</Text></TouchableOpacity></View>)}
+            {isExpanded && <View style={styles.historyDetails}>{dayMeals.length > 0 ? dayMeals.map((meal, idx) => (<View key={idx} style={styles.mealRow}><Text style={styles.mealName}>• {meal.name}</Text><Text style={styles.mealCal}>{meal.calories} kcal</Text></View>)) : <Text style={styles.noMealText}>Sem refeições.</Text>}<TouchableOpacity style={styles.deleteDayButton} onPress={() => handleDeleteDay(date)}><Feather name="trash-2" size={16} color="#ef4444" /><Text style={styles.deleteDayText}>Apagar Dia</Text></TouchableOpacity></View>}
           </View>
         );
       })}
-
-      <View style={{ marginTop: 40, alignItems: 'center' }}>
-        <TouchableOpacity style={styles.resetAllButton} onPress={handleResetApp}><Text style={styles.resetAllText}>Zerar Aplicativo (Reset de Fábrica)</Text></TouchableOpacity>
-      </View>
+      
+      <View style={{ marginTop: 40, alignItems: 'center' }}><TouchableOpacity style={styles.resetAllButton} onPress={handleResetApp}><Text style={styles.resetAllText}>Zerar App</Text></TouchableOpacity></View>
     </ScrollView>
   );
 }
@@ -314,23 +267,25 @@ const styles = StyleSheet.create({
   deleteDayText: { color: '#ef4444', fontSize: 14, fontWeight: 'bold', marginLeft: 8 },
   resetAllButton: { padding: 12, borderRadius: 8, backgroundColor: '#fee2e2' },
   resetAllText: { color: '#ef4444', fontWeight: 'bold', fontSize: 12 },
-
-  // --- NOVOS ESTILOS PARA A CALCULADORA ---
-  selectRow: { flexDirection: 'row', gap: 10, marginBottom: 15 },
+  selectRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 15, gap: 10 },
   selectBtn: { flex: 1, padding: 10, alignItems: 'center', borderRadius: 8, borderWidth: 1, borderColor: '#e0f2fe', backgroundColor: '#fff' },
   selectBtnActive: { backgroundColor: '#0ea5e9', borderColor: '#0ea5e9' },
-  selectText: { color: '#0ea5e9', fontWeight: 'bold' },
+  selectText: { color: '#0ea5e9', fontWeight: 'bold', fontSize: 12 },
   selectTextActive: { color: '#fff' },
-  
   chip: { paddingHorizontal: 12, paddingVertical: 8, borderRadius: 20, backgroundColor: '#fff', borderWidth: 1, borderColor: '#e0f2fe', marginRight: 5, marginBottom: 5 },
   chipActive: { backgroundColor: '#0ea5e9', borderColor: '#0ea5e9' },
   chipText: { color: '#0ea5e9', fontSize: 12, fontWeight: '600' },
   chipTextActive: { color: '#fff' },
-
   calcButton: { flexDirection: 'row', backgroundColor: '#0ea5e9', padding: 15, borderRadius: 10, alignItems: 'center', justifyContent: 'center', marginVertical: 15, elevation: 3 },
-  
   macroSuggestion: { marginTop: 10, padding: 10, backgroundColor: '#fff', borderRadius: 8, alignItems: 'center' },
   macroTitle: { fontSize: 12, color: '#666', marginBottom: 5, fontWeight: 'bold' },
   macroRow: { flexDirection: 'row', gap: 15 },
-  macroItem: { fontSize: 14, color: '#333', fontWeight: '600' }
+  macroItem: { fontSize: 14, color: '#333', fontWeight: '600' },
+  
+  // ESTILOS DE MEDALHAS
+  badgeSection: { marginBottom: 20 },
+  emptyBadges: { color: '#999', fontStyle: 'italic', fontSize: 12, marginTop: 5 },
+  badgeItem: { alignItems: 'center', marginRight: 15 },
+  badgeIcon: { width: 50, height: 50, borderRadius: 25, alignItems: 'center', justifyContent: 'center', marginBottom: 5, elevation: 3 },
+  badgeText: { fontSize: 10, color: '#4b5563', fontWeight: 'bold', maxWidth: 60, textAlign: 'center' }
 });

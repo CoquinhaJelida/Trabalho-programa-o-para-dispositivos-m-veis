@@ -1,32 +1,36 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
-  View, Text, TouchableOpacity, StyleSheet, ScrollView, Alert, Modal, TextInput, Keyboard 
+  View, Text, TouchableOpacity, StyleSheet, ScrollView, Alert, Modal, TextInput, Platform 
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Feather } from '@expo/vector-icons';
-import { saveFastingState, getFastingState, saveFastingLog, getFastingHistory, deleteFastingLog } from '../services/db';
+import DateTimePicker from '@react-native-community/datetimepicker';
+import { saveFastingState, getFastingState, saveFastingLog, getFastingHistory, deleteFastingLog, addXP } from '../services/db';
 
-export default function FastingScreen() {
+const FASTING_STAGES = [
+  { hours: 0, title: "Digestão", desc: "Níveis de insulina subindo.", icon: "coffee", color: ["#9ca3af", "#6b7280"] },
+  { hours: 4, title: "Queda de Insulina", desc: "O açúcar no sangue cai.", icon: "trending-down", color: ["#fbbf24", "#d97706"] },
+  { hours: 8, title: "Início da Queima", desc: "Uso de glicose do fígado.", icon: "activity", color: ["#f87171", "#dc2626"] },
+  { hours: 12, title: "Queima de Gordura 🔥", desc: "Estado de CETOSE leve.", icon: "flame", color: ["#c084fc", "#9333ea"] },
+  { hours: 16, title: "Autofagia ♻️", desc: "Limpeza celular profunda.", icon: "refresh-cw", color: ["#4ade80", "#16a34a"] },
+  { hours: 24, title: "Pico de GH", desc: "Hormônio do crescimento dispara.", icon: "zap", color: ["#38bdf8", "#0284c7"] }
+];
+
+export default function FastingScreen({ onGainXP }) {
   const [isFasting, setIsFasting] = useState(false);
   const [startTime, setStartTime] = useState(null);
   const [goalHours, setGoalHours] = useState(16); 
   const [elapsed, setElapsed] = useState(0);
   const [fastingHistory, setFastingHistory] = useState([]);
   
-  // Estados do Modal
   const [modalVisible, setModalVisible] = useState(false);
   const [editMode, setEditMode] = useState('start'); 
-  
-  // --- INPUTS MANUAIS ---
-  const [dayInput, setDayInput] = useState('');
-  const [monthInput, setMonthInput] = useState('');
-  const [hourInput, setHourInput] = useState('');
-  const [minuteInput, setMinuteInput] = useState('');
+  const [stagesModalVisible, setStagesModalVisible] = useState(false);
 
-  // Refs para pular de um campo pro outro automaticamente
-  const refMonth = useRef(null);
-  const refHour = useRef(null);
-  const refMinute = useRef(null);
+  const [tempDate, setTempDate] = useState(new Date());
+  const [showPicker, setShowPicker] = useState(false);
+  const [pickerMode, setPickerMode] = useState('date');
+  const [currentStage, setCurrentStage] = useState(FASTING_STAGES[0]);
 
   useEffect(() => {
     let interval;
@@ -35,11 +39,15 @@ export default function FastingScreen() {
         const now = Date.now();
         const diffInSeconds = Math.floor((now - startTime) / 1000);
         setElapsed(diffInSeconds);
+        const hoursElapsed = diffInSeconds / 3600;
+        const stage = [...FASTING_STAGES].reverse().find(s => hoursElapsed >= s.hours) || FASTING_STAGES[0];
+        setCurrentStage(stage);
       };
       tick();
       interval = setInterval(tick, 1000);
     } else {
       setElapsed(0);
+      setCurrentStage(FASTING_STAGES[0]);
     }
     return () => clearInterval(interval);
   }, [isFasting, startTime]);
@@ -59,246 +67,155 @@ export default function FastingScreen() {
     getFastingHistory(setFastingHistory);
   };
 
-  // --- PREENCHER O MODAL COM A DATA ATUAL/INICIAL ---
-  const prepareModal = (mode) => {
-    setEditMode(mode);
-    
-    let baseDate = new Date(); // Padrão: Agora
-    
-    // Se for editar o início e ele já existir, usa ele
-    if (mode === 'start' && startTime) {
-      baseDate = new Date(startTime);
+  const handleDateChange = (event, selectedDate) => {
+    if (Platform.OS === 'android') setShowPicker(false);
+    if (event.type === 'dismissed') return;
+    if (selectedDate) {
+      const currentDate = new Date(tempDate);
+      if (pickerMode === 'date') currentDate.setFullYear(selectedDate.getFullYear(), selectedDate.getMonth(), selectedDate.getDate());
+      else currentDate.setHours(selectedDate.getHours(), selectedDate.getMinutes());
+      setTempDate(currentDate);
     }
-
-    // Preenche os inputs com dois dígitos (ex: 05)
-    setDayInput(String(baseDate.getDate()).padStart(2, '0'));
-    setMonthInput(String(baseDate.getMonth() + 1).padStart(2, '0'));
-    setHourInput(String(baseDate.getHours()).padStart(2, '0'));
-    setMinuteInput(String(baseDate.getMinutes()).padStart(2, '0'));
-    
-    setModalVisible(true);
   };
 
-  // --- SALVAR COM DATA MANUAL ---
+  const showPickerMode = (mode) => { setPickerMode(mode); setShowPicker(true); };
+
   const handleSaveManual = () => {
-    // Validação Simples
-    const d = parseInt(dayInput);
-    const m = parseInt(monthInput);
-    const h = parseInt(hourInput);
-    const min = parseInt(minuteInput);
-
-    if (!d || !m || isNaN(h) || isNaN(min) || d > 31 || m > 12 || h > 23 || min > 59) {
-      Alert.alert("Data Inválida", "Verifique os valores digitados.");
-      return;
-    }
-
-    // Cria a data
-    const currentYear = new Date().getFullYear();
-    const chosenDate = new Date(currentYear, m - 1, d, h, min);
-    const chosenTime = chosenDate.getTime();
+    const chosenTime = tempDate.getTime();
     const now = Date.now();
-
     if (editMode === 'start') {
-      if (chosenTime > now) {
-        // Se a data for no futuro (ex: digitou dia 30 mas é dia 27), pode ser erro de ano ou mês
-        // Mas vamos bloquear futuro por segurança
-        Alert.alert("Erro", "Não dá para iniciar no futuro.");
-        return;
-      }
-      setStartTime(chosenTime);
-      setIsFasting(true);
+      if (chosenTime > now) { Alert.alert("Erro", "Futuro não permitido."); return; }
+      setStartTime(chosenTime); setIsFasting(true);
       saveFastingState(chosenTime, goalHours, true);
       setModalVisible(false);
-      Alert.alert("Sucesso", "Horário de início atualizado!");
-    } 
-    else if (editMode === 'end') {
+      Alert.alert("Sucesso", "Jejum ajustado!");
+    } else if (editMode === 'end') {
       if (chosenTime < startTime) return Alert.alert("Erro", "Término antes do início.");
-      if (chosenTime > now + 60000) return Alert.alert("Erro", "Não dá para encerrar no futuro.");
-
       const totalSeconds = Math.floor((chosenTime - startTime) / 1000);
       finishFasting(startTime, chosenTime, totalSeconds);
       setModalVisible(false);
     }
-    Keyboard.dismiss();
   };
 
-  const startNow = () => {
-    const now = Date.now();
-    setStartTime(now);
-    setIsFasting(true);
-    saveFastingState(now, goalHours, true);
-  };
-
-  const stopNow = () => {
-    Alert.alert("Encerrar", "Encerrar jejum agora?", [
-      { text: "Cancelar", style: "cancel" },
-      { text: "Sim", onPress: () => {
-          const now = Date.now();
-          const totalSeconds = Math.floor((now - startTime) / 1000);
-          finishFasting(startTime, now, totalSeconds);
-      }}
-    ]);
-  };
+  const startNow = () => { const now = Date.now(); setStartTime(now); setIsFasting(true); saveFastingState(now, goalHours, true); };
+  const stopNow = () => { Alert.alert("Encerrar", "Encerrar jejum?", [{ text: "Cancelar", style: "cancel" }, { text: "Sim", onPress: () => { const now = Date.now(); const totalSeconds = Math.floor((now - startTime) / 1000); finishFasting(startTime, now, totalSeconds); } }]); };
 
   const finishFasting = async (start, end, durationSec) => {
-    setIsFasting(false);
-    setStartTime(null);
-    saveFastingState(null, goalHours, false);
-    
+    setIsFasting(false); setStartTime(null); saveFastingState(null, goalHours, false);
     await saveFastingLog(start, end, durationSec, goalHours);
     getFastingHistory(setFastingHistory);
-
-    const h = Math.floor(durationSec / 3600);
-    const m = Math.floor((durationSec % 3600) / 60);
-    Alert.alert("Parabéns!", `Jejum de ${h}h e ${m}m finalizado.`);
+    const h = Math.floor(durationSec / 3600); const m = Math.floor((durationSec % 3600) / 60);
+    
+    // --- XP ---
+    addXP(50, (newStats, leveledUp) => {
+       if(onGainXP) onGainXP(50, "Jejum Finalizado");
+       Alert.alert("Jejum Finalizado", `Você completou ${h}h e ${m}m! ${leveledUp ? '\n\nSUBIU DE NÍVEL! 🎉' : ''}`);
+    });
   };
 
-  const deleteLog = (id) => {
-    Alert.alert("Apagar", "Remover este registro?", [
-      { text: "Não", style: "cancel" },
-      { text: "Sim", onPress: () => deleteFastingLog(id, setFastingHistory) }
-    ]);
-  };
+  const deleteLog = (id) => { Alert.alert("Apagar", "Remover?", [{ text: "Não", style: "cancel" }, { text: "Sim", onPress: () => deleteFastingLog(id, setFastingHistory) }]); };
 
-  // Helpers
-  const formatTime = (totalSeconds) => {
-    const h = Math.floor(totalSeconds / 3600);
-    const m = Math.floor((totalSeconds % 3600) / 60);
-    const s = totalSeconds % 60;
-    return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
-  };
-  const formatDatePretty = (date) => date.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' });
-  const formatTimePretty = (date) => date.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
-  const formatDuration = (seconds) => {
-    const h = Math.floor(seconds / 3600);
-    const m = Math.floor((seconds % 3600) / 60);
-    return `${h}h ${m}m`;
-  };
-  const getEndTime = () => {
-    if (!startTime) return "--:--";
-    const end = new Date(startTime + (goalHours * 60 * 60 * 1000));
-    return end.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
-  };
+  const formatTime = (s) => { const h = Math.floor(s/3600); const m = Math.floor((s%3600)/60); const sc = s%60; return `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(sc).padStart(2,'0')}`; };
+  const formatDatePretty = (d) => d.toLocaleDateString('pt-BR', {day:'2-digit', month:'2-digit'});
+  const formatTimePretty = (d) => d.toLocaleTimeString('pt-BR', {hour:'2-digit', minute:'2-digit'});
+  const formatDuration = (s) => { const h = Math.floor(s/3600); const m = Math.floor((s%3600)/60); return `${h}h ${m}m`; };
+  const getEndTime = () => { if (!startTime) return "--:--"; const end = new Date(startTime+(goalHours*3600000)); return end.toLocaleTimeString('pt-BR', {hour:'2-digit', minute:'2-digit'}); };
+  const openStartModal = () => { setEditMode('start'); setTempDate(startTime ? new Date(startTime) : new Date()); setModalVisible(true); };
+  const openEndModal = () => { setEditMode('end'); setTempDate(new Date()); setModalVisible(true); };
   
-  const goalSeconds = goalHours * 3600;
-  const progress = Math.min((elapsed / goalSeconds) * 100, 100);
-  const isGoalReached = elapsed >= goalSeconds;
+  const goalSeconds = goalHours*3600; const progress = Math.min((elapsed/goalSeconds)*100, 100); const isGoalReached = elapsed >= goalSeconds;
 
   return (
     <ScrollView contentContainerStyle={styles.container}>
+      <View style={styles.header}><Text style={styles.title}>Jejum Intermitente</Text><Text style={styles.subtitle}>{isFasting ? "Jejum em andamento" : "Pronto para começar?"}</Text></View>
       
-      <View style={styles.header}>
-        <Text style={styles.title}>Jejum Intermitente</Text>
-        <Text style={styles.subtitle}>{isFasting ? "Jejum em andamento" : "Pronto para começar?"}</Text>
-      </View>
-
       <View style={styles.timerCard}>
         <View style={styles.circleContainer}>
           <LinearGradient colors={isGoalReached ? ['#22c55e', '#16a34a'] : ['#f59e0b', '#d97706']} style={styles.timerCircle}>
             <View style={styles.innerCircle}>
               <Feather name={isFasting ? "clock" : "coffee"} size={32} color="#333" style={{marginBottom: 5}} />
-              {isFasting ? (
-                <><Text style={styles.timerText}>{formatTime(elapsed)}</Text><Text style={styles.timerLabel}>Tempo Decorrido</Text></>
-              ) : (
-                <Text style={styles.offText}>OFF</Text>
-              )}
+              {isFasting ? <><Text style={styles.timerText}>{formatTime(elapsed)}</Text><Text style={styles.timerLabel}>Tempo Decorrido</Text></> : <Text style={styles.offText}>OFF</Text>}
             </View>
           </LinearGradient>
         </View>
-
         {isFasting && (
           <>
-            <View style={styles.infoRow}>
-              <View style={styles.infoItem}>
-                <Text style={styles.infoLabel}>Início</Text>
-                <Text style={styles.infoValue}>{new Date(startTime).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</Text>
-                <TouchableOpacity onPress={() => prepareModal('start')}><Text style={styles.editLink}>Editar</Text></TouchableOpacity>
-              </View>
-              <View style={styles.infoItem}><Text style={styles.infoLabel}>Meta</Text><Text style={styles.infoValue}>{getEndTime()}</Text></View>
-              <View style={styles.infoItem}><Text style={styles.infoLabel}>Objetivo</Text><Text style={styles.infoValue}>{goalHours}h</Text></View>
-            </View>
+            <TouchableOpacity onPress={() => setStagesModalVisible(true)}>
+              <LinearGradient colors={currentStage.color} style={styles.stageCard}>
+                <View style={{flexDirection:'row', alignItems:'center', justifyContent:'space-between'}}>
+                  <View style={{flexDirection:'row', alignItems:'center'}}><Feather name={currentStage.icon} size={20} color="#fff" style={{marginRight:8}} /><Text style={styles.stageTitle}>{currentStage.title}</Text></View>
+                  <Feather name="info" size={16} color="rgba(255,255,255,0.8)" />
+                </View>
+                <Text style={styles.stageDesc}>{currentStage.desc}</Text>
+              </LinearGradient>
+            </TouchableOpacity>
+            <View style={styles.infoRow}><View style={styles.infoItem}><Text style={styles.infoLabel}>Início</Text><Text style={styles.infoValue}>{new Date(startTime).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</Text><TouchableOpacity onPress={openStartModal}><Text style={styles.editLink}>Editar</Text></TouchableOpacity></View><View style={styles.infoItem}><Text style={styles.infoLabel}>Meta</Text><Text style={styles.infoValue}>{getEndTime()}</Text></View><View style={styles.infoItem}><Text style={styles.infoLabel}>Objetivo</Text><Text style={styles.infoValue}>{goalHours}h</Text></View></View>
             <View style={styles.progressContainer}><View style={[styles.progressBar, { width: `${progress}%`, backgroundColor: isGoalReached ? '#22c55e' : '#f59e0b' }]} /></View>
             <Text style={styles.progressText}>{progress.toFixed(1)}% da meta</Text>
           </>
         )}
       </View>
 
+      {!isFasting && (
+         <TouchableOpacity style={styles.seeStagesBtn} onPress={() => setStagesModalVisible(true)}><Feather name="book-open" size={16} color="#4b5563" /><Text style={styles.seeStagesText}>Entenda as Fases do Jejum</Text></TouchableOpacity>
+      )}
+
       {!isFasting ? (
         <View style={styles.controls}>
           <Text style={styles.label}>Escolha sua meta:</Text>
-          <View style={styles.goalsGrid}>
-            {[12, 14, 16, 18, 24].map((h) => (
-              <TouchableOpacity key={h} style={[styles.goalBtn, goalHours === h && styles.goalBtnActive]} onPress={() => setGoalHours(h)}>
-                <Text style={[styles.goalText, goalHours === h && styles.goalTextActive]}>{h}h</Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-          <TouchableOpacity style={styles.startBtn} onPress={startNow}>
-            <LinearGradient colors={['#f59e0b', '#d97706']} style={styles.gradientBtn}><Text style={styles.startText}>INICIAR AGORA</Text></LinearGradient>
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.manualStartBtn} onPress={() => prepareModal('start')}><Text style={styles.manualStartText}>Esqueci de iniciar (Manual)</Text></TouchableOpacity>
+          <View style={styles.goalsGrid}>{[12, 14, 16, 18, 24].map((h) => (<TouchableOpacity key={h} style={[styles.goalBtn, goalHours === h && styles.goalBtnActive]} onPress={() => setGoalHours(h)}><Text style={[styles.goalText, goalHours === h && styles.goalTextActive]}>{h}h</Text></TouchableOpacity>))}</View>
+          <TouchableOpacity style={styles.startBtn} onPress={startNow}><LinearGradient colors={['#f59e0b', '#d97706']} style={styles.gradientBtn}><Text style={styles.startText}>INICIAR AGORA</Text></LinearGradient></TouchableOpacity>
+          <TouchableOpacity style={styles.manualStartBtn} onPress={openStartModal}><Text style={styles.manualStartText}>Esqueci de iniciar (Inserir Data/Hora)</Text></TouchableOpacity>
         </View>
       ) : (
         <View style={styles.controls}>
           <TouchableOpacity style={styles.stopBtn} onPress={stopNow}><Text style={styles.stopText}>Encerrar Agora</Text></TouchableOpacity>
-          <TouchableOpacity style={styles.manualStopBtn} onPress={() => prepareModal('end')}><Text style={styles.manualStopText}>Já encerrei antes (Manual)</Text></TouchableOpacity>
+          <TouchableOpacity style={styles.manualStopBtn} onPress={openEndModal}><Text style={styles.manualStopText}>Já encerrei antes (Inserir Data/Hora)</Text></TouchableOpacity>
         </View>
       )}
 
       <View style={styles.historySection}>
         <Text style={styles.historyTitle}>Seus Últimos Jejuns</Text>
-        {fastingHistory.length === 0 ? (
-          <Text style={styles.emptyHistory}>Nenhum jejum finalizado.</Text>
-        ) : (
-          fastingHistory.map((log) => (
-            <View key={log.id} style={styles.historyItem}>
-              <View style={styles.historyLeft}>
-                <Text style={styles.historyDate}>{formatDatePretty(new Date(log.endTime))}</Text>
-                <Text style={styles.historyDuration}>{formatDuration(log.durationSeconds)}</Text>
-              </View>
-              <View style={styles.historyRight}>
-                <Text style={styles.historyTimes}>{formatTimePretty(new Date(log.startTime))} - {formatTimePretty(new Date(log.endTime))}</Text>
-                <View style={[styles.badge, { backgroundColor: log.durationSeconds >= log.goalHours * 3600 ? '#dcfce7' : '#fee2e2' }]}>
-                  <Text style={[styles.badgeText, { color: log.durationSeconds >= log.goalHours * 3600 ? '#16a34a' : '#ef4444' }]}>
-                    {log.durationSeconds >= log.goalHours * 3600 ? 'Meta Batida' : 'Incompleto'}
-                  </Text>
-                </View>
-              </View>
-              <TouchableOpacity onPress={() => deleteLog(log.id)} style={{padding: 5}}><Feather name="trash-2" size={18} color="#9ca3af" /></TouchableOpacity>
-            </View>
-          ))
-        )}
+        {fastingHistory.length === 0 ? <Text style={styles.emptyHistory}>Nenhum jejum finalizado.</Text> : fastingHistory.map((log) => (
+          <View key={log.id} style={styles.historyItem}>
+            <View style={styles.historyLeft}><Text style={styles.historyDate}>{formatDatePretty(new Date(log.endTime))}</Text><Text style={styles.historyDuration}>{formatDuration(log.durationSeconds)}</Text></View>
+            <View style={styles.historyRight}><Text style={styles.historyTimes}>{formatTimePretty(new Date(log.startTime))} - {formatTimePretty(new Date(log.endTime))}</Text><View style={[styles.badge, { backgroundColor: log.durationSeconds >= log.goalHours * 3600 ? '#dcfce7' : '#fee2e2' }]}><Text style={[styles.badgeText, { color: log.durationSeconds >= log.goalHours * 3600 ? '#16a34a' : '#ef4444' }]}>{log.durationSeconds >= log.goalHours * 3600 ? 'Meta Batida' : 'Incompleto'}</Text></View></View>
+            <TouchableOpacity onPress={() => deleteLog(log.id)} style={{padding: 5}}><Feather name="trash-2" size={18} color="#9ca3af" /></TouchableOpacity>
+          </View>
+        ))}
       </View>
 
-      {/* --- MODAL MANUAL SIMPLIFICADO (SEM RELÓGIO BUGADO) --- */}
-      <Modal visible={modalVisible} transparent={true} animationType="slide">
+      <Modal visible={stagesModalVisible} transparent={true} animationType="slide">
         <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <Text style={styles.modalTitle}>{editMode === 'start' ? "Definir Início" : "Definir Término"}</Text>
-            
-            <Text style={styles.manualLabel}>Data (Dia / Mês)</Text>
-            <View style={styles.manualRow}>
-              <TextInput style={styles.manualInput} keyboardType="numeric" maxLength={2} value={dayInput} onChangeText={(t)=>{setDayInput(t); if(t.length==2) refMonth.current.focus()}} placeholder="DD" />
-              <Text style={styles.manualSep}>/</Text>
-              <TextInput ref={refMonth} style={styles.manualInput} keyboardType="numeric" maxLength={2} value={monthInput} onChangeText={(t)=>{setMonthInput(t); if(t.length==2) refHour.current.focus()}} placeholder="MM" />
-            </View>
-
-            <Text style={styles.manualLabel}>Horário (Hora : Minuto)</Text>
-            <View style={styles.manualRow}>
-              <TextInput ref={refHour} style={styles.manualInput} keyboardType="numeric" maxLength={2} value={hourInput} onChangeText={(t)=>{setHourInput(t); if(t.length==2) refMinute.current.focus()}} placeholder="HH" />
-              <Text style={styles.manualSep}>:</Text>
-              <TextInput ref={refMinute} style={styles.manualInput} keyboardType="numeric" maxLength={2} value={minuteInput} onChangeText={setMinuteInput} placeholder="MM" />
-            </View>
-
-            <View style={styles.modalButtons}>
-              <TouchableOpacity onPress={() => setModalVisible(false)} style={styles.btnCancel}><Text style={styles.btnCancelText}>Cancelar</Text></TouchableOpacity>
-              <TouchableOpacity onPress={handleSaveManual} style={styles.btnSave}><Text style={styles.btnSaveText}>Salvar</Text></TouchableOpacity>
-            </View>
+          <View style={styles.stagesContent}>
+            <View style={styles.stagesHeader}><Text style={styles.stagesTitle}>Ciclo Biológico do Jejum</Text><TouchableOpacity onPress={() => setStagesModalVisible(false)}><Feather name="x" size={24} color="#333" /></TouchableOpacity></View>
+            <ScrollView showsVerticalScrollIndicator={false}>
+              {FASTING_STAGES.map((stage, index) => (
+                <View key={index} style={styles.stageRow}>
+                  <View style={styles.stageLeft}><Text style={styles.stageHour}>{stage.hours}h</Text><View style={styles.stageLine} /></View>
+                  <View style={[styles.stageDetail, {borderLeftColor: stage.color[1]}]}>
+                    <View style={styles.stageDetailHeader}><Feather name={stage.icon} size={18} color={stage.color[1]} /><Text style={[styles.stageDetailTitle, {color: stage.color[1]}]}>{stage.title}</Text></View>
+                    <Text style={styles.stageDetailDesc}>{stage.desc}</Text>
+                  </View>
+                </View>
+              ))}
+              <View style={{height: 20}} />
+            </ScrollView>
           </View>
         </View>
       </Modal>
 
-      <View style={styles.tipsCard}><Text style={styles.tipsTitle}>💡 Dica</Text><Text style={styles.tipsText}>Beba muita água durante o jejum.</Text></View>
+      <Modal visible={modalVisible} transparent={true} animationType="slide">
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <Text style={styles.modalTitle}>{editMode === 'start' ? "Ajustar Início" : "Ajustar Término"}</Text>
+            <Text style={styles.modalLabel}>1. Dia:</Text><TouchableOpacity style={styles.pickerButton} onPress={() => showPickerMode('date')}><Feather name="calendar" size={20} color="#555" /><Text style={styles.pickerButtonText}>{formatDatePretty(tempDate)}</Text></TouchableOpacity>
+            <Text style={styles.modalLabel}>2. Hora:</Text><TouchableOpacity style={styles.pickerButton} onPress={() => showPickerMode('time')}><Feather name="clock" size={20} color="#555" /><Text style={styles.pickerButtonText}>{formatTimePretty(tempDate)}</Text></TouchableOpacity>
+            {showPicker && <DateTimePicker value={tempDate} mode={pickerMode} is24Hour={true} display="default" onChange={handleDateChange} />}
+            <View style={styles.modalButtons}><TouchableOpacity onPress={() => setModalVisible(false)} style={styles.btnCancel}><Text style={styles.btnCancelText}>Cancelar</Text></TouchableOpacity><TouchableOpacity onPress={handleSaveManual} style={styles.btnSave}><Text style={styles.btnSaveText}>Salvar</Text></TouchableOpacity></View>
+          </View>
+        </View>
+      </Modal>
     </ScrollView>
   );
 }
@@ -309,6 +226,11 @@ const styles = StyleSheet.create({
   title: { fontSize: 24, fontWeight: 'bold', color: '#1f2937' },
   subtitle: { fontSize: 14, color: '#6b7280' },
   timerCard: { backgroundColor: '#fff', borderRadius: 20, padding: 20, elevation: 4, alignItems: 'center', marginBottom: 20 },
+  stageCard: { width: '100%', borderRadius: 12, padding: 15, marginBottom: 20, elevation: 2 },
+  stageTitle: { color: '#fff', fontWeight: 'bold', fontSize: 16 },
+  stageDesc: { color: 'rgba(255,255,255,0.9)', fontSize: 12, marginTop: 2 },
+  seeStagesBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', padding: 10, marginBottom: 20, backgroundColor: '#f3f4f6', borderRadius: 10 },
+  seeStagesText: { marginLeft: 8, color: '#4b5563', fontWeight: '600' },
   circleContainer: { marginBottom: 20 },
   timerCircle: { width: 200, height: 200, borderRadius: 100, alignItems: 'center', justifyContent: 'center', padding: 8 },
   innerCircle: { width: '100%', height: '100%', borderRadius: 100, backgroundColor: '#fff', alignItems: 'center', justifyContent: 'center' },
@@ -342,23 +264,17 @@ const styles = StyleSheet.create({
   tipsCard: { marginTop: 10, padding: 15, backgroundColor: '#eff6ff', borderRadius: 12, borderWidth: 1, borderColor: '#dbeafe', marginBottom: 20 },
   tipsTitle: { fontWeight: 'bold', color: '#1e40af', marginBottom: 5 },
   tipsText: { color: '#1e3a8a', fontSize: 13, lineHeight: 18 },
-  
-  // MODAL MANUAL STYLES
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', padding: 20 },
   modalContent: { backgroundColor: '#fff', borderRadius: 20, padding: 20, alignItems: 'center', elevation: 5 },
   modalTitle: { fontSize: 20, fontWeight: 'bold', color: '#333', marginBottom: 20 },
-  manualLabel: { fontSize: 14, fontWeight: '600', color: '#555', marginBottom: 5, width: '100%' },
-  manualRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10, marginBottom: 20 },
-  manualInput: { borderWidth: 1, borderColor: '#ddd', borderRadius: 10, padding: 15, fontSize: 20, width: 60, textAlign: 'center', backgroundColor: '#f9f9f9' },
-  manualSep: { fontSize: 20, fontWeight: 'bold', color: '#555' },
-
+  modalLabel: { alignSelf: 'flex-start', color: '#666', marginBottom: 5, fontWeight: '600' },
+  pickerButton: { flexDirection: 'row', alignItems: 'center', padding: 15, borderWidth: 1, borderColor: '#ddd', borderRadius: 10, backgroundColor: '#f9f9f9', width: '100%', marginBottom: 15 },
+  pickerButtonText: { marginLeft: 10, fontSize: 16, fontWeight: 'bold', color: '#333' },
   modalButtons: { flexDirection: 'row', width: '100%', gap: 10, marginTop: 10 },
   btnCancel: { flex: 1, padding: 12, backgroundColor: '#f3f4f6', borderRadius: 10, alignItems: 'center' },
   btnCancelText: { color: '#666', fontWeight: 'bold' },
   btnSave: { flex: 1, padding: 12, backgroundColor: '#f59e0b', borderRadius: 10, alignItems: 'center' },
   btnSaveText: { color: '#fff', fontWeight: 'bold' },
-
-  // HISTÓRICO
   historySection: { marginTop: 10, paddingBottom: 30 },
   historyTitle: { fontSize: 18, fontWeight: 'bold', color: '#333', marginBottom: 10 },
   emptyHistory: { color: '#999', textAlign: 'center', fontStyle: 'italic' },
@@ -369,5 +285,16 @@ const styles = StyleSheet.create({
   historyRight: { alignItems: 'flex-end', marginRight: 10 },
   historyTimes: { fontSize: 12, color: '#888', marginBottom: 4 },
   badge: { paddingVertical: 3, paddingHorizontal: 8, borderRadius: 8 },
-  badgeText: { fontSize: 10, fontWeight: 'bold' }
+  badgeText: { fontSize: 10, fontWeight: 'bold' },
+  stagesContent: { backgroundColor: '#fff', borderRadius: 20, padding: 20, width: '100%', height: '70%' },
+  stagesHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 },
+  stagesTitle: { fontSize: 20, fontWeight: 'bold', color: '#1f2937' },
+  stageRow: { flexDirection: 'row', marginBottom: 0 },
+  stageLeft: { alignItems: 'center', marginRight: 15, width: 30 },
+  stageHour: { fontSize: 12, fontWeight: 'bold', color: '#666', marginBottom: 5 },
+  stageLine: { flex: 1, width: 2, backgroundColor: '#e5e7eb', marginBottom: 5 },
+  stageDetail: { flex: 1, backgroundColor: '#f9fafb', padding: 12, borderRadius: 10, borderLeftWidth: 4, marginBottom: 15 },
+  stageDetailHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 5 },
+  stageDetailTitle: { fontWeight: 'bold', marginLeft: 8, fontSize: 14 },
+  stageDetailDesc: { color: '#666', fontSize: 12, lineHeight: 16 },
 });

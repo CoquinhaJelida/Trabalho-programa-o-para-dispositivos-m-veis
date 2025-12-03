@@ -17,13 +17,18 @@ export default function GalleryScreen() {
   const [selectedImage, setSelectedImage] = useState(null);
   const [compareImage, setCompareImage] = useState(null);
   const [isPickingCompare, setIsPickingCompare] = useState(false);
-  
-  // NOVO: Controle de redimensionamento (contain = ver inteira / cover = preencher)
-  const [resizeMode, setResizeMode] = useState('contain'); 
+  // Mudei o padrão para 'cover' para preencher melhor a metade da tela
+  const [resizeMode, setResizeMode] = useState('cover'); 
 
   const [modalVisible, setModalVisible] = useState(false);
   const [tempPhotoUri, setTempPhotoUri] = useState(null);
   const [weightInput, setWeightInput] = useState('');
+  
+  // Medidas
+  const [waistInput, setWaistInput] = useState('');
+  const [chestInput, setChestInput] = useState('');
+  const [armInput, setArmInput] = useState('');
+  const [hipInput, setHipInput] = useState('');
 
   useEffect(() => {
     loadData();
@@ -34,10 +39,11 @@ export default function GalleryScreen() {
     getHistory(setMealHistory);
   };
 
-  const prepareWeightInput = () => {
+  const prepareInputs = () => {
     getProfile((data) => {
       if (data && data.weight) setWeightInput(data.weight);
       else setWeightInput('');
+      setWaistInput(''); setChestInput(''); setArmInput(''); setHipInput('');
     });
   };
 
@@ -51,7 +57,8 @@ export default function GalleryScreen() {
 
   const pickImage = async (type) => {
     let result;
-    const options = { mediaTypes: ImagePicker.MediaTypeOptions.Images, quality: 0.7, allowsEditing: true, aspect: [4, 5] };
+    // Mudamos aspect para [3, 4] para ficar ligeiramente mais alto, melhor para corpo
+    const options = { mediaTypes: ImagePicker.MediaTypeOptions.Images, quality: 0.7, allowsEditing: true, aspect: [3, 4] };
     if (type === 'camera') {
       const permission = await ImagePicker.requestCameraPermissionsAsync();
       if (!permission.granted) return Alert.alert("Erro", "Sem permissão.");
@@ -61,7 +68,7 @@ export default function GalleryScreen() {
     }
     if (!result.canceled) {
       setTempPhotoUri(result.assets[0].uri);
-      prepareWeightInput();
+      prepareInputs();
       setModalVisible(true);
     }
   };
@@ -69,7 +76,8 @@ export default function GalleryScreen() {
   const saveFinalBodyPhoto = async () => {
     if (tempPhotoUri) {
       const today = getTodayKey();
-      await savePhotoLog(today, tempPhotoUri, weightInput);
+      const measurements = { waist: waistInput, chest: chestInput, arm: armInput, hips: hipInput };
+      await savePhotoLog(today, tempPhotoUri, weightInput, measurements);
       setModalVisible(false);
       setTempPhotoUri(null);
       loadData();
@@ -78,47 +86,42 @@ export default function GalleryScreen() {
 
   const handleDeleteCurrent = () => {
     if (!selectedImage) return;
-    Alert.alert(
-      "Excluir", 
-      selectedImage.type === 'meal' ? "Apagar refeição?" : "Apagar foto?",
-      [
-        { text: "Cancelar", style: "cancel" },
-        { 
-          text: "Apagar", 
-          style: "destructive", 
-          onPress: async () => {
-            if (selectedImage.type === 'body') await deletePhoto(selectedImage.date, selectedImage.id, setGallery);
-            else await deleteMealFromHistory(selectedImage.date, selectedImage.id, () => getHistory(setMealHistory));
-            handleCloseZoom();
-          } 
-        }
-      ]
-    );
+    Alert.alert("Excluir", selectedImage.type === 'meal' ? "Apagar refeição?" : "Apagar foto?", [
+      { text: "Cancelar", style: "cancel" },
+      { text: "Apagar", style: "destructive", onPress: async () => {
+          if (selectedImage.type === 'body') await deletePhoto(selectedImage.date, selectedImage.id, setGallery);
+          else await deleteMealFromHistory(selectedImage.date, selectedImage.id, () => getHistory(setMealHistory));
+          handleCloseZoom();
+        } 
+      }
+    ]);
   };
 
-  const handleCloseZoom = () => {
-    setSelectedImage(null);
-    setCompareImage(null);
-    setIsPickingCompare(false);
-    setResizeMode('contain'); // Reseta para o modo padrão
-  };
-
-  // Toggle entre Ajustar (ver tudo) e Preencher (zoom)
-  const toggleResizeMode = () => {
-    setResizeMode(prev => prev === 'contain' ? 'cover' : 'contain');
-  };
-
+  const handleCloseZoom = () => { setSelectedImage(null); setCompareImage(null); setIsPickingCompare(false); setResizeMode('cover'); };
+  const toggleResizeMode = () => { setResizeMode(prev => prev === 'contain' ? 'cover' : 'contain'); };
   const formatDate = (dateStr) => dateStr.split('-').reverse().join('/');
 
   const getAllBodyPhotos = () => {
     const allPhotos = [];
     Object.keys(gallery).sort().reverse().forEach(date => {
-      gallery[date].forEach(photo => {
-        allPhotos.push({ ...photo, date });
-      });
+      gallery[date].forEach(photo => { allPhotos.push({ ...photo, date }); });
     });
     return allPhotos;
   };
+
+  // COMPONENTE: DADOS NA COMPARAÇÃO (Aceita prop 'position')
+  const CompareInfoOverlay = ({ item, position }) => (
+    <View style={[styles.compareOverlay, position === 'top' ? styles.compareOverlayTop : styles.compareOverlayBottom]}>
+      <Text style={styles.compDate}>{formatDate(item.date)}</Text>
+      <Text style={styles.compWeight}>{item.weight} kg</Text>
+      {item.measurements && (
+        <View style={styles.compMeasures}>
+          <View style={styles.compRow}><Text style={styles.compTxt}>Cint: {item.measurements.waist || '-'}</Text><Text style={styles.compTxt}>Peit: {item.measurements.chest || '-'}</Text></View>
+          <View style={styles.compRow}><Text style={styles.compTxt}>Braç: {item.measurements.arm || '-'}</Text><Text style={styles.compTxt}>Quad: {item.measurements.hips || '-'}</Text></View>
+        </View>
+      )}
+    </View>
+  );
 
   const bodyDates = Object.keys(gallery).sort().reverse();
   const mealDates = Object.keys(mealHistory).filter(date => {
@@ -129,21 +132,14 @@ export default function GalleryScreen() {
   return (
     <View style={styles.container}>
       <View style={styles.tabContainer}>
-        <TouchableOpacity onPress={() => setActiveTab('body')} style={[styles.tabBtn, activeTab === 'body' && styles.tabBtnActive]}>
-          <Text style={[styles.tabText, activeTab === 'body' && styles.tabTextActive]}>Meu Corpo</Text>
-        </TouchableOpacity>
-        <TouchableOpacity onPress={() => setActiveTab('meals')} style={[styles.tabBtn, activeTab === 'meals' && styles.tabBtnActive]}>
-          <Text style={[styles.tabText, activeTab === 'meals' && styles.tabTextActive]}>Refeições</Text>
-        </TouchableOpacity>
+        <TouchableOpacity onPress={() => setActiveTab('body')} style={[styles.tabBtn, activeTab === 'body' && styles.tabBtnActive]}><Text style={[styles.tabText, activeTab === 'body' && styles.tabTextActive]}>Meu Corpo</Text></TouchableOpacity>
+        <TouchableOpacity onPress={() => setActiveTab('meals')} style={[styles.tabBtn, activeTab === 'meals' && styles.tabBtnActive]}><Text style={[styles.tabText, activeTab === 'meals' && styles.tabTextActive]}>Refeições</Text></TouchableOpacity>
       </View>
 
       {activeTab === 'body' && (
         <>
           <TouchableOpacity style={styles.btnAdd} onPress={handleAddBodyPhoto}>
-            <LinearGradient colors={['#8b5cf6', '#6d28d9']} style={styles.btnGradient}>
-              <Feather name="camera" size={24} color="#fff" />
-              <Text style={styles.btnText}>Registrar Evolução</Text>
-            </LinearGradient>
+            <LinearGradient colors={['#8b5cf6', '#6d28d9']} style={styles.btnGradient}><Feather name="camera" size={24} color="#fff" /><Text style={styles.btnText}>Registrar Evolução</Text></LinearGradient>
           </TouchableOpacity>
 
           <FlatList
@@ -153,15 +149,12 @@ export default function GalleryScreen() {
             ListEmptyComponent={<View style={styles.emptyState}><Feather name="user" size={50} color="#ddd" /><Text style={styles.emptyText}>Sem fotos de evolução.</Text></View>}
             renderItem={({ item: date }) => (
               <View style={styles.dateSection}>
-                <View style={styles.dateHeader}>
-                  <Feather name="calendar" size={16} color="#7c3aed" />
-                  <Text style={styles.dateText}>{formatDate(date)}</Text>
-                </View>
+                <View style={styles.dateHeader}><Feather name="calendar" size={16} color="#7c3aed" /><Text style={styles.dateText}>{formatDate(date)}</Text></View>
                 <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingRight: 20 }}>
                   {gallery[date].map((item, index) => (
-                    <TouchableOpacity key={index} onPress={() => setSelectedImage({ uri: item.uri || item, id: item.id||item, date, weight: item.weight, type: 'body' })} style={styles.cardWrapper}>
-                      <Image source={{ uri: item.uri || item }} style={styles.thumbnailBody} />
-                      {(item.weight) && <View style={styles.weightBadge}><Text style={styles.weightText}>{item.weight}kg</Text></View>}
+                    <TouchableOpacity key={index} onPress={() => setSelectedImage({ ...item, date, type: 'body' })} style={styles.cardWrapper}>
+                      <Image source={{ uri: item.uri }} style={styles.thumbnailBody} />
+                      {item.weight && <View style={styles.weightBadge}><Text style={styles.weightText}>{item.weight}kg</Text></View>}
                     </TouchableOpacity>
                   ))}
                 </ScrollView>
@@ -179,10 +172,7 @@ export default function GalleryScreen() {
           ListEmptyComponent={<View style={styles.emptyState}><Feather name="coffee" size={50} color="#ddd" /><Text style={styles.emptyText}>Sem fotos de refeições.</Text></View>}
           renderItem={({ item: date }) => (
             <View style={styles.dateSection}>
-              <View style={styles.dateHeader}>
-                <Feather name="calendar" size={16} color="#16a34a" />
-                <Text style={styles.dateText}>{formatDate(date)}</Text>
-              </View>
+              <View style={styles.dateHeader}><Feather name="calendar" size={16} color="#16a34a" /><Text style={styles.dateText}>{formatDate(date)}</Text></View>
               <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingRight: 20 }}>
                 {mealHistory[date].meals.filter(m => m.image).map((meal, index) => (
                   <TouchableOpacity key={index} onPress={() => setSelectedImage({ uri: meal.image, id: meal.id, date, type: 'meal', data: meal })} style={styles.mealCard}>
@@ -196,13 +186,24 @@ export default function GalleryScreen() {
         />
       )}
 
-      {/* MODAL PESO */}
       <Modal visible={modalVisible} transparent={true} animationType="slide">
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
-            <Text style={styles.modalTitle}>Peso Atual</Text>
-            {tempPhotoUri && <Image source={{ uri: tempPhotoUri }} style={styles.modalPreview} />}
-            <TextInput style={styles.input} placeholder="Kg" keyboardType="numeric" value={weightInput} onChangeText={setWeightInput} autoFocus />
+            <Text style={styles.modalTitle}>Registrar Medidas</Text>
+            <ScrollView style={{maxHeight: 400, width: '100%'}} showsVerticalScrollIndicator={false}>
+              {tempPhotoUri && <Image source={{ uri: tempPhotoUri }} style={styles.modalPreview} />}
+              <Text style={styles.inputLabel}>Peso (kg)</Text>
+              <TextInput style={styles.input} placeholder="Ex: 75" keyboardType="numeric" value={weightInput} onChangeText={setWeightInput} />
+              <Text style={styles.inputLabel}>Medidas (cm - Opcional)</Text>
+              <View style={styles.row}>
+                <TextInput style={[styles.input, {flex: 1, marginRight: 5}]} placeholder="Cintura" keyboardType="numeric" value={waistInput} onChangeText={setWaistInput} />
+                <TextInput style={[styles.input, {flex: 1, marginLeft: 5}]} placeholder="Quadril" keyboardType="numeric" value={hipInput} onChangeText={setHipInput} />
+              </View>
+              <View style={styles.row}>
+                <TextInput style={[styles.input, {flex: 1, marginRight: 5}]} placeholder="Peito" keyboardType="numeric" value={chestInput} onChangeText={setChestInput} />
+                <TextInput style={[styles.input, {flex: 1, marginLeft: 5}]} placeholder="Braço" keyboardType="numeric" value={armInput} onChangeText={setArmInput} />
+              </View>
+            </ScrollView>
             <View style={styles.modalButtons}>
               <TouchableOpacity onPress={() => setModalVisible(false)} style={styles.btnCancel}><Text style={styles.btnCancelText}>Cancelar</Text></TouchableOpacity>
               <TouchableOpacity onPress={saveFinalBodyPhoto} style={styles.btnSave}><Text style={styles.btnSaveText}>Salvar</Text></TouchableOpacity>
@@ -211,7 +212,6 @@ export default function GalleryScreen() {
         </View>
       </Modal>
 
-      {/* MODAL DE ESCOLHA (COMPARAR) */}
       <Modal visible={isPickingCompare} transparent={true} animationType="slide">
         <View style={styles.modalOverlay}>
           <View style={styles.pickerContent}>
@@ -222,7 +222,7 @@ export default function GalleryScreen() {
               numColumns={3}
               renderItem={({item}) => (
                 <TouchableOpacity style={styles.pickerItem} onPress={() => { setCompareImage(item); setIsPickingCompare(false); }}>
-                   <Image source={{uri: item.uri || item}} style={styles.pickerThumb} />
+                   <Image source={{uri: item.uri}} style={styles.pickerThumb} />
                    <Text style={styles.pickerDate}>{formatDate(item.date)}</Text>
                 </TouchableOpacity>
               )}
@@ -236,33 +236,30 @@ export default function GalleryScreen() {
       <Modal visible={selectedImage !== null} transparent={true} animationType="fade">
         <View style={styles.zoomContainer}>
           <TouchableOpacity style={styles.closeBtn} onPress={handleCloseZoom}><Feather name="x" size={28} color="#fff" /></TouchableOpacity>
-          
-          {!compareImage && (
-            <TouchableOpacity style={styles.deleteBtn} onPress={handleDeleteCurrent}><Feather name="trash-2" size={28} color="#ef4444" /></TouchableOpacity>
-          )}
+          {!compareImage && <TouchableOpacity style={styles.deleteBtn} onPress={handleDeleteCurrent}><Feather name="trash-2" size={28} color="#ef4444" /></TouchableOpacity>}
 
           {compareImage ? (
-            <View style={styles.compareContainer}>
-              {/* FOTO 1 */}
+            // --- MUDANÇA AQUI: FLEX COLUMN PARA VERTICAL ---
+            <View style={[styles.compareContainer, { flexDirection: 'column' }]}>
+              
+              {/* PARTE DE CIMA (Mais antiga) */}
               <View style={styles.compareHalf}>
-                <Image source={{ uri: selectedImage.uri }} style={styles.compareImage} resizeMode={resizeMode} />
-                <View style={styles.compareLabel}><Text style={styles.compareText}>{formatDate(selectedImage.date)}</Text><Text style={styles.compareSub}>{selectedImage.weight} kg</Text></View>
-              </View>
-              <View style={styles.compareDivider} />
-              {/* FOTO 2 */}
-              <View style={styles.compareHalf}>
-                <Image source={{ uri: compareImage.uri || compareImage }} style={styles.compareImage} resizeMode={resizeMode} />
-                <View style={styles.compareLabel}><Text style={styles.compareText}>{formatDate(compareImage.date)}</Text><Text style={styles.compareSub}>{compareImage.weight} kg</Text></View>
+                <Image source={{ uri: compareImage.uri }} style={styles.compareImage} resizeMode={resizeMode} />
+                {/* Info no TOPO */}
+                <CompareInfoOverlay item={compareImage} position="top" />
               </View>
               
-              {/* BOTÃO DE AJUSTE DE IMAGEM */}
-              <TouchableOpacity style={styles.resizeBtn} onPress={toggleResizeMode}>
-                <Feather name={resizeMode === 'contain' ? 'maximize' : 'minimize'} size={20} color="#fff" />
-                <Text style={{color:'#fff', marginLeft:5, fontWeight:'bold'}}>
-                  {resizeMode === 'contain' ? 'Preencher' : 'Ajustar'}
-                </Text>
-              </TouchableOpacity>
-
+              {/* DIVISOR HORIZONTAL */}
+              <View style={styles.compareDividerHorizontal} />
+              
+              {/* PARTE DE BAIXO (Mais nova) */}
+              <View style={styles.compareHalf}>
+                <Image source={{ uri: selectedImage.uri }} style={styles.compareImage} resizeMode={resizeMode} />
+                {/* Info no RODAPÉ */}
+                <CompareInfoOverlay item={selectedImage} position="bottom" />
+              </View>
+              
+              <TouchableOpacity style={styles.resizeBtn} onPress={toggleResizeMode}><Feather name={resizeMode === 'contain' ? 'maximize' : 'minimize'} size={20} color="#fff" /><Text style={{color:'#fff', marginLeft:5, fontWeight:'bold'}}>{resizeMode === 'contain' ? 'Preencher' : 'Ajustar'}</Text></TouchableOpacity>
               <TouchableOpacity style={styles.stopCompareBtn} onPress={() => setCompareImage(null)}><Text style={{color:'#fff', fontWeight:'bold'}}>Fechar Comparação</Text></TouchableOpacity>
             </View>
           ) : (
@@ -270,11 +267,26 @@ export default function GalleryScreen() {
               <>
                 <Image source={{ uri: selectedImage.uri }} style={styles.fullImage} resizeMode="contain" />
                 {selectedImage.type === 'body' && (
-                  <TouchableOpacity style={styles.compareBtn} onPress={() => setIsPickingCompare(true)}>
-                    <Feather name="columns" size={20} color="#fff" />
-                    <Text style={styles.compareBtnText}>Comparar</Text>
-                  </TouchableOpacity>
+                  <>
+                    <TouchableOpacity style={styles.compareBtn} onPress={() => setIsPickingCompare(true)}>
+                      <Feather name="columns" size={20} color="#fff" style={{transform: [{rotate: '90deg'}]}} /> 
+                      <Text style={styles.compareBtnText}>Comparar</Text>
+                    </TouchableOpacity>
+                    
+                    <View style={styles.measurePanel}>
+                       <View style={styles.measureRow}><Text style={styles.measureTitle}>Peso: <Text style={styles.measureVal}>{selectedImage.weight}kg</Text></Text></View>
+                       {selectedImage.measurements && (
+                         <View style={styles.measureGrid}>
+                           <View style={styles.measureItem}><Text style={styles.measureLbl}>Cintura</Text><Text style={styles.measureValSmall}>{selectedImage.measurements.waist || '--'}</Text></View>
+                           <View style={styles.measureItem}><Text style={styles.measureLbl}>Peito</Text><Text style={styles.measureValSmall}>{selectedImage.measurements.chest || '--'}</Text></View>
+                           <View style={styles.measureItem}><Text style={styles.measureLbl}>Braço</Text><Text style={styles.measureValSmall}>{selectedImage.measurements.arm || '--'}</Text></View>
+                           <View style={styles.measureItem}><Text style={styles.measureLbl}>Quadril</Text><Text style={styles.measureValSmall}>{selectedImage.measurements.hips || '--'}</Text></View>
+                         </View>
+                       )}
+                    </View>
+                  </>
                 )}
+
                 {selectedImage.type === 'meal' && selectedImage.data && (
                   <View style={styles.infoPanel}>
                     <Text style={styles.infoTitle}>{selectedImage.data.name}</Text>
@@ -289,7 +301,6 @@ export default function GalleryScreen() {
                     </View>
                   </View>
                 )}
-                {selectedImage.type === 'body' && selectedImage.weight && (<View style={styles.infoPanelBody}><Text style={styles.infoLabel}>Peso</Text><Text style={styles.infoValueBody}>{selectedImage.weight} kg</Text></View>)}
               </>
             )
           )}
@@ -328,15 +339,17 @@ const styles = StyleSheet.create({
   modalTitle: { fontSize: 20, fontWeight: 'bold', color: '#333' },
   modalPreview: { width: 100, height: 100, borderRadius: 10, marginBottom: 15, marginTop: 10 },
   input: { borderWidth: 1, borderColor: '#ddd', borderRadius: 10, padding: 10, width: '100%', fontSize: 18, textAlign: 'center', marginBottom: 20 },
+  inputLabel: { fontWeight: 'bold', color: '#666', marginBottom: 5, marginTop: 5, alignSelf: 'flex-start' },
+  row: { flexDirection: 'row' },
   modalButtons: { flexDirection: 'row', width: '100%', gap: 10 },
   btnCancel: { flex: 1, padding: 12, backgroundColor: '#f3f4f6', borderRadius: 10, alignItems: 'center' },
   btnCancelText: { color: '#666', fontWeight: 'bold' },
   btnSave: { flex: 1, padding: 12, backgroundColor: '#8b5cf6', borderRadius: 10, alignItems: 'center' },
   btnSaveText: { color: '#fff', fontWeight: 'bold' },
-  zoomContainer: { flex: 1, backgroundColor: '#000', justifyContent: 'center' },
+  zoomContainer: { flex: 1, backgroundColor: 'rgba(0,0,0,0.95)', justifyContent: 'center' },
   closeBtn: { position: 'absolute', top: 50, right: 20, zIndex: 20, padding: 10, backgroundColor: 'rgba(255,255,255,0.2)', borderRadius: 20 },
   deleteBtn: { position: 'absolute', top: 50, left: 20, zIndex: 20, padding: 10, backgroundColor: 'rgba(255,255,255,0.2)', borderRadius: 20 },
-  fullImage: { width: '100%', height: '70%' },
+  fullImage: { width: '100%', height: '60%' },
   infoPanel: { position: 'absolute', bottom: 40, width: '90%', backgroundColor: 'rgba(20,20,20,0.95)', padding: 20, borderRadius: 20, alignItems: 'center' },
   infoTitle: { color: '#fff', fontSize: 22, fontWeight: 'bold', marginBottom: 2 },
   infoDesc: { color: '#bbb', fontSize: 13, fontStyle: 'italic', marginBottom: 8, textAlign: 'center' },
@@ -346,11 +359,16 @@ const styles = StyleSheet.create({
   infoLabel: { color: '#aaa', fontSize: 10, textTransform: 'uppercase' },
   infoValue: { color: '#fff', fontSize: 16, fontWeight: 'bold' },
   infoDivider: { width: 1, height: 30, backgroundColor: '#444' },
-  infoPanelBody: { position: 'absolute', bottom: 60, backgroundColor: 'rgba(255,255,255,0.9)', paddingHorizontal: 30, paddingVertical: 15, borderRadius: 30 },
-  infoValueBody: { fontSize: 24, fontWeight: 'bold', color: '#7c3aed' },
+  measurePanel: { position: 'absolute', bottom: 40, width: '90%', backgroundColor: 'rgba(255,255,255,0.95)', padding: 20, borderRadius: 20 },
+  measureRow: { alignItems: 'center', marginBottom: 15 },
+  measureTitle: { fontSize: 18, fontWeight: 'bold', color: '#555' },
+  measureVal: { fontSize: 24, fontWeight: 'bold', color: '#7c3aed' },
+  measureGrid: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between' },
+  measureItem: { width: '22%', alignItems: 'center', backgroundColor: '#f3f4f6', padding: 8, borderRadius: 10 },
+  measureLbl: { fontSize: 10, color: '#999', textTransform: 'uppercase' },
+  measureValSmall: { fontSize: 14, fontWeight: 'bold', color: '#333' },
   
-  // --- NOVOS ESTILOS DE COMPARAÇÃO ---
-  compareBtn: { position: 'absolute', bottom: 140, backgroundColor: '#7c3aed', flexDirection: 'row', alignItems: 'center', paddingVertical: 10, paddingHorizontal: 20, borderRadius: 25 },
+  compareBtn: { position: 'absolute', bottom: 200, backgroundColor: '#7c3aed', flexDirection: 'row', alignItems: 'center', paddingVertical: 10, paddingHorizontal: 20, borderRadius: 25 },
   compareBtnText: { color: '#fff', fontWeight: 'bold', marginLeft: 8 },
   
   pickerContent: { backgroundColor: '#fff', borderRadius: 20, padding: 20, height: '60%' },
@@ -359,15 +377,23 @@ const styles = StyleSheet.create({
   pickerThumb: { width: width/3 - 30, height: 100, borderRadius: 10, backgroundColor: '#eee' },
   pickerDate: { fontSize: 10, color: '#666', marginTop: 5 },
   btnCancelPicker: { padding: 15, backgroundColor: '#f3f4f6', borderRadius: 10, alignItems: 'center', marginTop: 10 },
-
-  compareContainer: { flexDirection: 'row', width: '100%', height: '60%', alignItems: 'center', backgroundColor: '#000' },
-  compareHalf: { flex: 1, height: '100%', alignItems: 'center', justifyContent: 'center' },
-  compareImage: { width: '100%', height: '100%', borderRadius: 0 }, // Borda 0 para juntar bem
-  compareDivider: { width: 2, height: '100%', backgroundColor: '#fff' },
-  compareLabel: { position: 'absolute', bottom: 20, backgroundColor: 'rgba(0,0,0,0.6)', padding: 8, borderRadius: 8 },
-  compareText: { color: '#fff', fontSize: 12, fontWeight: 'bold', textAlign: 'center' },
-  compareSub: { color: '#d8b4fe', fontSize: 10, fontWeight: 'bold', textAlign: 'center' },
-  stopCompareBtn: { position: 'absolute', bottom: -60, alignSelf: 'center', padding: 10, backgroundColor: 'rgba(255,255,255,0.2)', borderRadius: 20 },
   
+  // --- ESTILOS DE COMPARAÇÃO VERTICAL ---
+  compareContainer: { width: '100%', height: '70%', alignItems: 'center', backgroundColor: '#000' }, // Altura maior
+  compareHalf: { width: '100%', flex: 1, alignItems: 'center', justifyContent: 'center', position: 'relative' },
+  compareImage: { width: '100%', height: '100%' },
+  compareDividerHorizontal: { width: '100%', height: 2, backgroundColor: '#fff' },
+  
+  // Overlay que se adapta ao topo ou base
+  compareOverlay: { position: 'absolute', backgroundColor: 'rgba(0,0,0,0.7)', padding: 8, borderRadius: 8, alignItems: 'center', width: '90%' },
+  compareOverlayTop: { top: 10 },
+  compareOverlayBottom: { bottom: 10 },
+  
+  compDate: { color: '#fff', fontSize: 12, fontWeight: 'bold' },
+  compWeight: { color: '#d8b4fe', fontSize: 10, fontWeight: 'bold', marginBottom: 4 },
+  compMeasures: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center' },
+  compRow: { flexDirection: 'row', gap: 8, marginBottom: 2 },
+  compTxt: { color: '#ccc', fontSize: 8 },
+  stopCompareBtn: { position: 'absolute', bottom: -60, alignSelf: 'center', padding: 10, backgroundColor: 'rgba(255,255,255,0.2)', borderRadius: 20 },
   resizeBtn: { position: 'absolute', top: -50, alignSelf: 'center', flexDirection: 'row', alignItems: 'center', padding: 10, backgroundColor: 'rgba(255,255,255,0.2)', borderRadius: 20 },
 });
