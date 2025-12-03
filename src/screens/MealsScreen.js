@@ -15,7 +15,6 @@ export default function MealsScreen({ onGainXP }) {
   const [totals, setTotals] = useState({ kcal: 0, carbs: 0, protein: 0, fat: 0, sugar: 0 });
   
   const [mealType, setMealType] = useState('breakfast');
-
   const [currentPlate, setCurrentPlate] = useState([]); 
   const [isPlateMode, setIsPlateMode] = useState(false);
   const [plateModalVisible, setPlateModalVisible] = useState(false);
@@ -94,20 +93,26 @@ export default function MealsScreen({ onGainXP }) {
     return matchName && matchCat;
   });
 
-  const handleTakeMealPhoto = async () => {
-    const permission = await ImagePicker.requestCameraPermissionsAsync();
-    if (!permission.granted) return Alert.alert("Erro", "Permissão negada.");
-    const result = await ImagePicker.launchCameraAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, quality: 0.5, aspect: [4, 3] });
-    if (!result.canceled) setMealPhoto(result.assets[0].uri);
+  // --- FOTOS ---
+  const pickImageSource = (setPhotoFunction) => {
+    Alert.alert("Adicionar Foto", "Escolha a origem:", [
+      { text: "Cancelar", style: "cancel" },
+      { text: "Galeria", onPress: async () => {
+          const res = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, quality: 0.5, aspect: [4, 3] });
+          if (!res.canceled) setPhotoFunction(res.assets[0].uri);
+      }},
+      { text: "Câmera", onPress: async () => {
+          const perm = await ImagePicker.requestCameraPermissionsAsync();
+          if (!perm.granted) return Alert.alert("Erro", "Permissão de câmera negada.");
+          const res = await ImagePicker.launchCameraAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, quality: 0.5, aspect: [4, 3] });
+          if (!res.canceled) setPhotoFunction(res.assets[0].uri);
+      }},
+    ]);
   };
+  const handleSelectMealPhoto = () => pickImageSource(setMealPhoto);
+  const handleSelectPlatePhoto = () => pickImageSource(setPlatePhoto);
 
-  const handleTakePlatePhoto = async () => {
-    const permission = await ImagePicker.requestCameraPermissionsAsync();
-    if (!permission.granted) return Alert.alert("Erro", "Permissão negada.");
-    const result = await ImagePicker.launchCameraAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, quality: 0.6, aspect: [4, 3] });
-    if (!result.canceled) setPlatePhoto(result.assets[0].uri);
-  };
-
+  // --- DELETE CORRIGIDO: CHAMA O BANCO ---
   const deleteMeal = (id) => {
     Alert.alert("Apagar", "Remover esta refeição?", [
       { text: "Cancelar", style: "cancel" },
@@ -126,7 +131,7 @@ export default function MealsScreen({ onGainXP }) {
     if (measureType === 'g') { multiplier = parseFloat(inputValue) / 100; weightVal = parseFloat(inputValue); } 
     else { const unitWeight = selectedItem.unit_weight || 100; multiplier = (unitWeight * parseFloat(inputValue)) / 100; weightVal = Math.round(unitWeight * parseFloat(inputValue)); }
     return {
-      id: Date.now().toString() + Math.random(),
+      id: Date.now().toString() + Math.floor(Math.random() * 1000),
       name: selectedItem.name,
       calories: Math.round(selectedItem.calories * multiplier),
       carbs: Math.round((selectedItem.carbs || 0) * multiplier),
@@ -151,6 +156,7 @@ export default function MealsScreen({ onGainXP }) {
     }
   };
 
+  // --- SALVAR DIRETO (ITEM ÚNICO) ---
   const saveDirectly = () => {
     const newItem = createMealObject();
     if (newItem) {
@@ -166,14 +172,10 @@ export default function MealsScreen({ onGainXP }) {
   };
 
   const finalizeSingle = (item) => {
+    // CHAMA O BANCO PARA ADICIONAR
     addMealToDay(item, (updatedList) => {
       setTodaysMeals(updatedList); calculateTotals(updatedList); finishAndClean();
-      
-      // --- CHAMA XP ---
-      addXP(15, (s, up) => { 
-        if(onGainXP) onGainXP(15, "Refeição");
-        if(up) Alert.alert("LEVEL UP! 🚀", `Nível ${s.level} alcançado!`); 
-      });
+      if(onGainXP) onGainXP(15, "Refeição");
     });
   };
 
@@ -186,6 +188,7 @@ export default function MealsScreen({ onGainXP }) {
     }
   };
 
+  // --- SALVAR PRATO COMPLETO ---
   const savePlateGroup = () => {
     if (!plateName.trim()) return Alert.alert("Erro", "Dê um nome para o prato.");
     const totalStats = currentPlate.reduce((acc, curr) => ({
@@ -198,8 +201,9 @@ export default function MealsScreen({ onGainXP }) {
     }), { calories: 0, carbs: 0, protein: 0, fat: 0, sugar: 0, weightVal: 0 });
     const description = currentPlate.map(i => i.name).join(', ');
     const finalImage = platePhoto || currentPlate.find(i => i.image)?.image || null;
+
     const newGroupMeal = {
-      id: Date.now().toString() + Math.random(),
+      id: Date.now().toString() + Math.floor(Math.random() * 1000),
       name: plateName,
       description: description,
       calories: totalStats.calories,
@@ -213,19 +217,17 @@ export default function MealsScreen({ onGainXP }) {
       mealType: mealType,
       time: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
     };
+
+    // CHAMA O BANCO
     addMealToDay(newGroupMeal, (updatedList) => {
       setTodaysMeals(updatedList); calculateTotals(updatedList); setPlateModalVisible(false); finishAndClean();
-      
-      // --- CHAMA XP ---
-      addXP(20, (s, up) => { 
-        if(onGainXP) onGainXP(20, "Prato Feito");
-        if(up) Alert.alert("LEVEL UP! 🚀", `Nível ${s.level}!`); 
-      });
+      if(onGainXP) onGainXP(20, "Prato Feito");
     });
   };
 
-  const finishAndClean = () => { setCurrentPlate([]); setIsPlateMode(false); setPlatePhoto(null); setMode('list'); };
+  const finishAndClean = () => { setCurrentPlate([]); setIsPlateMode(false); setPlatePhoto(null); setInputValue(''); setSelectedItem(null); setSearchText(''); setMode('list'); Keyboard.dismiss(); };
   const removeFromPlate = (index) => { const newPlate = [...currentPlate]; newPlate.splice(index, 1); setCurrentPlate(newPlate); if (newPlate.length === 0) setIsPlateMode(false); };
+  const handleClosePanel = () => { setSelectedItem(null); setInputValue(''); setMeasureType('g'); setMealPhoto(null); Keyboard.dismiss(); };
 
   const handleCreateFood = () => {
     if (!newName || !newKcal) return Alert.alert("Erro", "Preencha tudo.");
@@ -238,19 +240,13 @@ export default function MealsScreen({ onGainXP }) {
     addCustomFood(newName, parseFloat(newKcal)*factor, newCat, finalUnitWeight, macros, () => {
       Alert.alert("Sucesso", "Criado!"); setNewName(''); setNewKcal(''); setNewUnitWeight(''); setNewCarbs(''); setNewProt(''); setNewFat(''); setNewSugar(''); setCreateType('100g');
       getCustomFoods(setCustomFoods); setMode('search');
-      
-      // --- CHAMA XP ---
-      addXP(20, (s, up) => { 
-        if(onGainXP) onGainXP(20, "Criador");
-        if(up) Alert.alert("LEVEL UP!", "Mestre Cuca!"); 
-      });
+      if(onGainXP) onGainXP(20, "Criador");
     });
   };
 
-  const handleClosePanel = () => { setSelectedItem(null); setInputValue(''); setMeasureType('g'); setMealPhoto(null); Keyboard.dismiss(); };
-  const plateTotal = currentPlate.reduce((acc, curr) => acc + curr.calories, 0);
   const isSelectedDrink = selectedItem?.category === 'Bebida';
   const isNewDrink = newCat === 'Bebida';
+  const plateTotal = currentPlate.reduce((acc, curr) => acc + curr.calories, 0);
 
   const MealTypeSelector = () => (
     <View style={styles.mealTypeContainer}>
@@ -332,8 +328,8 @@ export default function MealsScreen({ onGainXP }) {
                 <TouchableOpacity style={[styles.toggleBtn, measureType === 'un' && styles.toggleBtnActive]} onPress={() => setMeasureType('un')}><Text style={[styles.toggleText, measureType === 'un' && styles.toggleTextActive]}>un</Text></TouchableOpacity>
               </View>
               <View style={styles.inputRow}>
-                <TextInput style={[styles.input, { flex: 1 }]} placeholder={measureType === 'g' ? "Qtd" : "1"} placeholderTextColor="#9ca3af" keyboardType="numeric" value={inputValue} onChangeText={setInputValue} />
-                <TouchableOpacity style={[styles.camBtn, mealPhoto && {backgroundColor: '#dcfce7', borderColor: '#16a34a'}]} onPress={handleTakeMealPhoto}>{mealPhoto ? <Image source={{ uri: mealPhoto }} style={{width: 24, height: 24, borderRadius: 4}} /> : <Feather name="camera" size={24} color={mealPhoto ? '#16a34a' : '#666'} />}</TouchableOpacity>
+                <TextInput style={[styles.input, { flex: 1 }]} placeholder={measureType === 'g' ? (isSelectedDrink?"Vol":"Peso") : "Qtd"} placeholderTextColor="#9ca3af" keyboardType="numeric" value={inputValue} onChangeText={setInputValue} />
+                <TouchableOpacity style={[styles.camBtn, mealPhoto && {backgroundColor: '#dcfce7', borderColor: '#16a34a'}]} onPress={handleSelectMealPhoto}>{mealPhoto ? <Image source={{ uri: mealPhoto }} style={{width: 24, height: 24, borderRadius: 4}} /> : <Feather name="camera" size={24} color={mealPhoto ? '#16a34a' : '#666'} />}</TouchableOpacity>
                 <TouchableOpacity style={styles.btnSmall} onPress={saveDirectly}><Text style={{ color: '#fff', fontSize: 12, fontWeight:'bold' }}>Salvar 1</Text></TouchableOpacity>
                 <TouchableOpacity style={styles.btnConfirm} onPress={addToPlate}><Text style={{ color: '#fff', fontWeight: 'bold' }}>+ Prato</Text></TouchableOpacity>
               </View>
@@ -349,7 +345,7 @@ export default function MealsScreen({ onGainXP }) {
           <View style={styles.modalContent}>
             <Text style={styles.modalTitle}>Finalizar Prato</Text>
             <TextInput style={styles.modalInput} placeholder="Ex: Almoço" placeholderTextColor="#9ca3af" value={plateName} onChangeText={setPlateName} autoFocus />
-            <TouchableOpacity style={[styles.modalCamBtn, platePhoto && {backgroundColor: '#dcfce7', borderColor: '#16a34a'}]} onPress={handleTakePlatePhoto}>{platePhoto ? <><Image source={{ uri: platePhoto }} style={styles.modalThumb} /><Text style={[styles.modalCamText, {color: '#16a34a'}]}>Foto registrada!</Text></> : <><Feather name="camera" size={24} color="#666" /><Text style={styles.modalCamText}>Foto do prato completo</Text></>}</TouchableOpacity>
+            <TouchableOpacity style={[styles.modalCamBtn, platePhoto && {backgroundColor: '#dcfce7', borderColor: '#16a34a'}]} onPress={handleSelectPlatePhoto}>{platePhoto ? <><Image source={{ uri: platePhoto }} style={styles.modalThumb} /><Text style={[styles.modalCamText, {color: '#16a34a'}]}>Foto registrada!</Text></> : <><Feather name="camera" size={24} color="#666" /><Text style={styles.modalCamText}>Foto do prato completo (Opcional)</Text></>}</TouchableOpacity>
             <View style={styles.modalButtons}>
               <TouchableOpacity onPress={() => setPlateModalVisible(false)} style={styles.btnCancelModal}><Text style={styles.btnTextCancel}>Cancelar</Text></TouchableOpacity>
               <TouchableOpacity onPress={savePlateGroup} style={styles.btnSaveModal}><Text style={styles.btnTextSave}>Salvar Prato</Text></TouchableOpacity>
@@ -362,12 +358,12 @@ export default function MealsScreen({ onGainXP }) {
         <ScrollView style={{ flex: 1 }}>
           <View style={styles.card}>
             <Text style={styles.cardTitle}>Novo Alimento</Text>
-            <TextInput style={styles.input} placeholder="Nome" placeholderTextColor="#9ca3af" value={newName} onChangeText={setNewName} />
+            <TextInput style={styles.input} placeholder="Nome (ex: Pizza)" placeholderTextColor="#9ca3af" value={newName} onChangeText={setNewName} />
             <View style={styles.toggleContainer}>
               <TouchableOpacity style={[styles.toggleBtn, createType === '100g' && styles.toggleBtnActive]} onPress={() => setCreateType('100g')}><Text style={[styles.toggleText, createType === '100g' && styles.toggleTextActive]}>{isNewDrink?'Por 100ml':'Por 100g'}</Text></TouchableOpacity>
               <TouchableOpacity style={[styles.toggleBtn, createType === 'un' && styles.toggleBtnActive]} onPress={() => setCreateType('un')}><Text style={[styles.toggleText, createType === 'un' && styles.toggleTextActive]}>Por Unidade</Text></TouchableOpacity>
             </View>
-            {createType === '100g' ? <><Text style={styles.label}>Calorias (100{isNewDrink?'ml':'g'})</Text><TextInput style={styles.input} placeholder="Kcal" placeholderTextColor="#9ca3af" keyboardType="numeric" value={newKcal} onChangeText={setNewKcal} /></> : <><Text style={styles.label}>Calorias (1 UN)</Text><TextInput style={styles.input} placeholder="Kcal" placeholderTextColor="#9ca3af" keyboardType="numeric" value={newKcal} onChangeText={setNewKcal} /><Text style={styles.label}>Peso 1 UN</Text><TextInput style={styles.input} placeholder={isNewDrink?'ml':'g'} placeholderTextColor="#9ca3af" keyboardType="numeric" value={newUnitWeight} onChangeText={setNewUnitWeight} /></>}
+            {createType === '100g' ? <><Text style={styles.label}>Calorias (100{isNewDrink?'ml':'g'})</Text><TextInput style={styles.input} placeholder="Kcal" placeholderTextColor="#9ca3af" keyboardType="numeric" value={newKcal} onChangeText={setNewKcal} /></> : <><Text style={styles.label}>Calorias (1 UN)</Text><TextInput style={styles.input} placeholder="Kcal" placeholderTextColor="#9ca3af" keyboardType="numeric" value={newKcal} onChangeText={setNewKcal} /><Text style={styles.label}>Peso de 1 UN (g)</Text><TextInput style={styles.input} placeholder="Gramas" placeholderTextColor="#9ca3af" keyboardType="numeric" value={newUnitWeight} onChangeText={setNewUnitWeight} /></>}
             <Text style={styles.label}>Macronutrientes (g)</Text>
             <View style={styles.row3}><TextInput style={[styles.input, {flex:1}]} placeholder="Carb" placeholderTextColor="#9ca3af" keyboardType="numeric" value={newCarbs} onChangeText={setNewCarbs} /><TextInput style={[styles.input, {flex:1, marginHorizontal:5}]} placeholder="Prot" placeholderTextColor="#9ca3af" keyboardType="numeric" value={newProt} onChangeText={setNewProt} /><TextInput style={[styles.input, {flex:1}]} placeholder="Gord" placeholderTextColor="#9ca3af" keyboardType="numeric" value={newFat} onChangeText={setNewFat} /></View>
             <View style={styles.row3}><TextInput style={[styles.input, {flex:1, borderColor: '#fca5a5'}]} placeholder="Açúcar" placeholderTextColor="#9ca3af" keyboardType="numeric" value={newSugar} onChangeText={setNewSugar} /><View style={{flex: 2}} /></View>
@@ -436,7 +432,6 @@ const styles = StyleSheet.create({
   btnSave: { flex: 1, padding: 15, alignItems: 'center', backgroundColor: '#16a34a', borderRadius: 8 },
   row3: { flexDirection: 'row', justifyContent: 'space-between' },
   
-  // MODAL STYLES
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', padding: 20 },
   modalContent: { backgroundColor: '#fff', borderRadius: 20, padding: 20, alignItems: 'center', elevation: 5 },
   modalTitle: { fontSize: 20, fontWeight: 'bold', color: '#333' },

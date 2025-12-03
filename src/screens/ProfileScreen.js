@@ -5,8 +5,7 @@ import {
 import { LinearGradient } from 'expo-linear-gradient';
 import { Feather } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage'; 
-import { saveProfile, getProfile, getHistory, getDayLog, getTodayKey, getCalorieStreak, deleteDailyLog, getChallengeStatus } from '../services/db';
-// Importa as Quests para exibir as medalhas
+import { saveProfile, getProfile, getHistory, getDayLog, getTodayKey, getCalorieStreak, deleteDailyLog, getChallengeStatus, getUserStats } from '../services/db';
 import { QUESTS } from '../data/quests';
 
 export default function ProfileScreen() {
@@ -23,13 +22,12 @@ export default function ProfileScreen() {
   const [calorieGoal, setCalorieGoal] = useState('2000');
   const [isStrict, setIsStrict] = useState(false); 
   const [calorieStreak, setCalorieStreak] = useState({ status: 'good', count: 0 });
+  const [userStats, setUserStats] = useState({ level: 1, currentXP: 0, nextLevelXP: 100 });
 
   const [todayCalories, setTodayCalories] = useState(0);
   const [todayWater, setTodayWater] = useState(0);
   const [history, setHistory] = useState({});
   const [expandedDate, setExpandedDate] = useState(null);
-  
-  // NOVO: Estado das Medalhas
   const [earnedBadges, setEarnedBadges] = useState({});
 
   useEffect(() => {
@@ -61,9 +59,8 @@ export default function ProfileScreen() {
     });
 
     getHistory(setHistory);
-    
-    // Carrega as medalhas conquistadas
     getChallengeStatus(setEarnedBadges);
+    getUserStats(setUserStats); // Carrega Nível
   };
 
   useEffect(() => {
@@ -106,47 +103,40 @@ export default function ProfileScreen() {
   const bmi = calculateBMI();
   const getBMIStatus = (v) => { if (v < 18.5) return { label: 'Abaixo', color: '#3b82f6' }; if (v < 24.9) return { label: 'Normal', color: '#16a34a' }; if (v < 29.9) return { label: 'Sobrepeso', color: '#eab308' }; return { label: 'Obesidade', color: '#ef4444' }; };
   const waterGoal = weight ? (parseFloat(weight) * 35).toFixed(0) : 0;
-  const goal = parseFloat(calorieGoal) || 2000;
-  const progressPercent = goal > 0 ? Math.min((todayCalories / goal) * 100, 100) : 0;
   const sortedDates = Object.keys(history).sort().reverse();
   const formatDate = (dateStr) => dateStr.split('-').reverse().slice(0, 2).join('/');
-  const showStrictBanner = isStrict;
-  const showFlexBanner = !isStrict && todayCalories >= goal;
-  const isBroken = isStrict && (todayCalories >= goal * 1.5);
   const weightDiff = (weight && targetWeight) ? (parseFloat(weight) - parseFloat(targetWeight)).toFixed(1) : null;
-
-  // Filtra apenas as quests completadas
   const myBadges = QUESTS.filter(q => earnedBadges[q.id]);
+  const xpPercent = Math.min((userStats.currentXP / userStats.nextLevelXP) * 100, 100);
 
   return (
     <ScrollView contentContainerStyle={styles.container}>
       
-      {showStrictBanner && (
-        <View style={[styles.messageCard, isBroken ? { backgroundColor: '#1f2937' } : (calorieStreak.status === 'bad' ? styles.messageBad : styles.messageGood)]}>
-          <Feather name={isBroken ? "zap-off" : (calorieStreak.status === 'bad' ? "alert-triangle" : "check-circle")} size={24} color="#fff" />
+      {/* --- NOVA POSIÇÃO: BARRA DE NÍVEL --- */}
+      <View style={styles.levelCard}>
+         <View style={styles.levelHeader}>
+           <View style={styles.levelBadge}>
+             <Text style={styles.levelText}>NÍVEL {userStats.level}</Text>
+           </View>
+           <Text style={styles.xpText}>{userStats.currentXP} / {userStats.nextLevelXP} XP</Text>
+         </View>
+         <View style={styles.xpBarBg}>
+           <LinearGradient colors={['#8b5cf6', '#6d28d9']} style={[styles.xpBarFill, {width: `${xpPercent}%`}]} />
+         </View>
+         <Text style={styles.levelSub}>Continue completando missões!</Text>
+      </View>
+
+      {isStrict && (
+        <View style={[styles.messageCard, calorieStreak.status === 'bad' ? styles.messageBad : styles.messageGood]}>
+          <Feather name={calorieStreak.status === 'bad' ? "alert-triangle" : "check-circle"} size={24} color="#fff" />
           <View style={{flex: 1, marginLeft: 10}}>
-            <Text style={styles.messageTitle}>{isBroken ? "SOCORRO! 😱" : (calorieStreak.status === 'bad' ? "Foco na meta!" : "Mandou bem!")}</Text>
-            <Text style={styles.messageText}>{isBroken ? "Barra quebrada!" : (calorieStreak.status === 'bad' ? `Você está a ${calorieStreak.count} dias fora.` : `Você está a ${calorieStreak.count} dias focado.`)}</Text>
+            <Text style={styles.messageTitle}>{calorieStreak.status === 'bad' ? "Foco na meta!" : "Mandou bem!"}</Text>
+            <Text style={styles.messageText}>{calorieStreak.status === 'bad' ? `Você está a ${calorieStreak.count} dias fora.` : `Você está a ${calorieStreak.count} dias focado.`}</Text>
           </View>
         </View>
       )}
-      {showFlexBanner && (
-        <View style={[styles.messageCard, styles.messageGood]}>
-          <Feather name="trending-up" size={24} color="#fff" />
-          <View style={{flex: 1, marginLeft: 10}}><Text style={styles.messageTitle}>Parabéns!</Text><Text style={styles.messageText}>Você está a {calorieStreak.count} dias no foco.</Text></View>
-        </View>
-      )}
 
-      <View style={styles.goalCard}>
-        <View style={styles.goalHeader}><Text style={styles.goalTitle}>Consumo Diário</Text><Text style={styles.goalValues}>{Math.round(todayCalories)} <Text style={{fontSize: 14, color: '#888'}}>/ {goal} kcal</Text></Text></View>
-        {isBroken ? (
-          <View style={styles.brokenContainer}><View style={styles.brokenLeft}><LinearGradient colors={['#7f1d1d', '#b91c1c']} style={{flex: 1, borderRadius: 6}} /></View><Text style={styles.explosion}>💥</Text><View style={styles.brokenRight}><LinearGradient colors={['#b91c1c', '#7f1d1d']} style={{flex: 1, borderRadius: 6}} /></View></View>
-        ) : (
-          <View style={styles.progressBarBackground}><LinearGradient colors={todayCalories > goal && isStrict ? ['#ef4444', '#b91c1c'] : ['#22c55e', '#16a34a']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={[styles.progressBarFill, { width: `${progressPercent}%` }]} /></View>
-        )}
-      </View>
-
-      {/* --- SEÇÃO DE MEDALHAS (NOVA) --- */}
+      {/* SEÇÃO DE MEDALHAS */}
       <View style={styles.badgeSection}>
         <Text style={styles.cardTitle}>Minhas Conquistas 🏅</Text>
         {myBadges.length === 0 ? (
@@ -219,6 +209,16 @@ export default function ProfileScreen() {
 
 const styles = StyleSheet.create({
   container: { padding: 20, paddingBottom: 40 },
+  // ESTILOS DO NÍVEL (Igual ao da Home)
+  levelCard: { backgroundColor: '#fff', padding: 15, borderRadius: 16, marginBottom: 20, elevation: 3 },
+  levelHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 },
+  levelBadge: { backgroundColor: '#1f2937', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 8 },
+  levelText: { color: '#fff', fontSize: 12, fontWeight: 'bold' },
+  xpText: { fontSize: 12, color: '#666', fontWeight: 'bold' },
+  xpBarBg: { width: '100%', height: 10, backgroundColor: '#e5e7eb', borderRadius: 5, overflow: 'hidden', marginBottom: 5 },
+  xpBarFill: { height: '100%' },
+  levelSub: { fontSize: 10, color: '#9ca3af', fontStyle: 'italic' },
+
   messageCard: { flexDirection: 'row', alignItems: 'center', padding: 15, borderRadius: 12, marginBottom: 20, elevation: 4 },
   messageGood: { backgroundColor: '#16a34a' },
   messageBad: { backgroundColor: '#ef4444' },
@@ -227,17 +227,6 @@ const styles = StyleSheet.create({
   switchRow: { flexDirection: 'row', alignItems: 'center', marginTop: 10, paddingTop: 15, borderTopWidth: 1, borderTopColor: '#f0f0f0' },
   switchTitle: { fontWeight: 'bold', fontSize: 16, color: '#333' },
   switchDesc: { fontSize: 12, color: '#666' },
-  goalCard: { backgroundColor: '#fff', padding: 20, borderRadius: 16, elevation: 4, marginBottom: 20, borderWidth: 1, borderColor: '#f0f0f0' },
-  goalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end', marginBottom: 10 },
-  goalTitle: { fontSize: 16, fontWeight: 'bold', color: '#333' },
-  goalValues: { fontSize: 24, fontWeight: 'bold', color: '#16a34a' },
-  progressBarBackground: { height: 12, backgroundColor: '#e5e7eb', borderRadius: 6, overflow: 'hidden', marginBottom: 8 },
-  progressBarFill: { height: '100%', borderRadius: 6 },
-  brokenContainer: { height: 30, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', marginBottom: 8 },
-  brokenLeft: { width: '45%', height: 12, transform: [{ rotate: '10deg' }, { translateY: 5 }] },
-  brokenRight: { width: '45%', height: 12, transform: [{ rotate: '-10deg' }, { translateY: 10 }] },
-  explosion: { fontSize: 24, position: 'absolute', zIndex: 10 },
-  goalSubtitle: { fontSize: 12, color: '#666', textAlign: 'right', fontStyle: 'italic' },
   card: { backgroundColor: '#fff', padding: 20, borderRadius: 16, elevation: 2, marginBottom: 20 },
   cardTitle: { fontSize: 18, fontWeight: 'bold', marginBottom: 15, color: '#333' },
   label: { fontSize: 13, fontWeight: '600', color: '#6b7280', marginBottom: 5, textTransform: 'uppercase' },
@@ -281,8 +270,6 @@ const styles = StyleSheet.create({
   macroTitle: { fontSize: 12, color: '#666', marginBottom: 5, fontWeight: 'bold' },
   macroRow: { flexDirection: 'row', gap: 15 },
   macroItem: { fontSize: 14, color: '#333', fontWeight: '600' },
-  
-  // ESTILOS DE MEDALHAS
   badgeSection: { marginBottom: 20 },
   emptyBadges: { color: '#999', fontStyle: 'italic', fontSize: 12, marginTop: 5 },
   badgeItem: { alignItems: 'center', marginRight: 15 },
