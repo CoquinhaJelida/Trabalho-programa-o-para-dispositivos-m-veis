@@ -1,9 +1,9 @@
 import React from 'react';
-import { View, Text, StyleSheet, Platform, TouchableOpacity } from 'react-native';
+import { View, Text, StyleSheet, Platform, TouchableOpacity, Image } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Feather } from '@expo/vector-icons';
 
-export default function Header({ onProfileClick, toggleTheme, isDarkMode, theme }) {
+export default function Header({ onProfileClick, toggleTheme, isDarkMode, theme, profileImage }) {
   return (
     <LinearGradient
       colors={isDarkMode ? ['#1f2937', '#111827'] : ['#16a34a', '#15803d']}
@@ -16,14 +16,18 @@ export default function Header({ onProfileClick, toggleTheme, isDarkMode, theme 
         </View>
 
         <View style={{flexDirection: 'row', gap: 10}}>
-          {/* Botão de Tema */}
+          {/* Botão Tema */}
           <TouchableOpacity style={[styles.iconButton, {backgroundColor: theme.card}]} onPress={toggleTheme}>
             <Feather name={isDarkMode ? "sun" : "moon"} size={20} color={theme.text} />
           </TouchableOpacity>
 
-          {/* Botão de Perfil */}
-          <TouchableOpacity style={[styles.iconButton, {backgroundColor: theme.card}]} onPress={onProfileClick}>
-            <Feather name="user" size={20} color={theme.primary} />
+          {/* Botão Perfil (COM FOTO) */}
+          <TouchableOpacity style={[styles.profileButton, {backgroundColor: theme.card}]} onPress={onProfileClick}>
+            {profileImage ? (
+              <Image source={{ uri: profileImage }} style={styles.avatarImage} />
+            ) : (
+              <Feather name="user" size={20} color={theme.primary} />
+            )}
           </TouchableOpacity>
         </View>
       </View>
@@ -47,16 +51,9 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
   },
-  headerTitle: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: '#fff',
-  },
-  headerSubtitle: {
-    color: '#dcfce7',
-    marginTop: 4,
-    fontSize: 14,
-  },
+  headerTitle: { fontSize: 24, fontWeight: 'bold', color: '#fff' },
+  headerSubtitle: { color: '#dcfce7', marginTop: 4, fontSize: 14 },
+  
   iconButton: {
     width: 40,
     height: 40,
@@ -68,5 +65,25 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.2,
     shadowRadius: 3,
+  },
+  
+  // Estilo específico do botão de perfil
+  profileButton: {
+    width: 45, 
+    height: 45, 
+    borderRadius: 25, 
+    justifyContent: 'center', 
+    alignItems: 'center',
+    elevation: 4,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 3,
+    overflow: 'hidden' // Garante que a imagem fique redonda
+  },
+  avatarImage: {
+    width: '100%',
+    height: '100%',
+    resizeMode: 'cover'
   }
 });
