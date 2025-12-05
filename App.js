@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { 
   StyleSheet, View, Text, TouchableOpacity, SafeAreaView, StatusBar, KeyboardAvoidingView, Platform, ScrollView, Modal, Animated, ActivityIndicator, ImageBackground 
 } from 'react-native';
@@ -27,6 +27,25 @@ import { lightTheme, darkTheme } from './src/theme/colors';
 
 const THEME_PREF_KEY = '@theme_preference';
 
+// --- COMPONENTE DE FUNDO ESTÁVEL (FORA DO APP) ---
+// Isso impede que o app recarregue o layout e resete o scroll do menu
+const MainLayout = ({ children, customBg, theme, isDarkMode, getThemeColor }) => {
+  if (customBg) {
+    return (
+      <View style={{ flex: 1 }}>
+        <ImageBackground source={{ uri: customBg }} style={styles.fixedBackground} resizeMode="cover" />
+        <View style={{ flex: 1, backgroundColor: isDarkMode ? 'rgba(0,0,0,0.7)' : 'rgba(255,255,255,0.4)' }}>
+          {children}
+        </View>
+      </View>
+    );
+  }
+  if (isDarkMode) {
+    return <View style={[styles.background, { backgroundColor: theme.background }]}>{children}</View>;
+  }
+  return <LinearGradient colors={getThemeColor()} style={styles.background}>{children}</LinearGradient>;
+};
+
 export default function App() {
   const [user, setUser] = useState(null);
   const [loadingAuth, setLoadingAuth] = useState(true);
@@ -45,34 +64,31 @@ export default function App() {
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const slideAnim = useRef(new Animated.Value(-50)).current;
 
-  // Carrega configurações de TEMA (Isso é global do aparelho, ok manter aqui)
   useEffect(() => {
     const loadSettings = async () => {
       try {
         const savedTheme = await AsyncStorage.getItem(THEME_PREF_KEY);
         if (savedTheme !== null) setIsDarkMode(savedTheme === 'dark');
       } catch (e) {}
+      getBackgroundImage(setCustomBg);
     };
     loadSettings();
   }, []);
 
-  // --- LÓGICA DE AUTENTICAÇÃO E LIMPEZA ---
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (authenticatedUser) => {
       setUser(authenticatedUser);
       
       if (authenticatedUser) {
-        // SE ENTROU: Carrega os dados do usuário
         getProfile((data) => {
           if (data && data.photo) setHeaderProfileImage(data.photo);
-          else setHeaderProfileImage(null); // Garante que reseta se não tiver foto
+          else setHeaderProfileImage(null);
         });
         getBackgroundImage(setCustomBg);
       } else {
-        // SE SAIU: Limpa tudo da memória visual para não vazar pro próximo
         setHeaderProfileImage(null);
         setCustomBg(null);
-        setCurrentTab('home'); // Reseta a aba
+        setCurrentTab('home');
       }
       
       setLoadingAuth(false);
@@ -82,22 +98,27 @@ export default function App() {
 
   const handleUpdateProfile = (uri) => setHeaderProfileImage(uri);
   const handleUpdateBg = (uri) => setCustomBg(uri);
-
-  const toggleTheme = async () => { const newMode = !isDarkMode; setIsDarkMode(newMode); await AsyncStorage.setItem(THEME_PREF_KEY, newMode ? 'dark' : 'light'); };
   
-  const handleGainXP = (amount, message = '') => {
+  const toggleTheme = async () => { 
+    const newMode = !isDarkMode; 
+    setIsDarkMode(newMode); 
+    await AsyncStorage.setItem(THEME_PREF_KEY, newMode ? 'dark' : 'light'); 
+  };
+
+  const handleGainXP = useCallback((amount, message = '') => {
     setXpNotification({ visible: true, amount, message });
     Animated.parallel([
       Animated.timing(fadeAnim, { toValue: 1, duration: 300, useNativeDriver: true }),
       Animated.spring(slideAnim, { toValue: 20, friction: 5, useNativeDriver: true })
     ]).start();
+
     setTimeout(() => {
       Animated.parallel([
         Animated.timing(fadeAnim, { toValue: 0, duration: 300, useNativeDriver: true }),
         Animated.timing(slideAnim, { toValue: -50, duration: 300, useNativeDriver: true })
       ]).start(() => { setXpNotification({ visible: false, amount: 0, message: '' }); });
     }, 2500);
-  };
+  }, []);
 
   useEffect(() => { if(Platform.OS==='android'){NavigationBar.setVisibilityAsync('hidden'); NavigationBar.setBehaviorAsync('overlay-swipe'); NavigationBar.setBackgroundColorAsync('#ffffff00');} }, []);
   useEffect(() => { if(user && motivationalMessages.length>0){const r = Math.floor(Math.random()*motivationalMessages.length); setTodaysMessage(motivationalMessages[r]); setShowMotivation(true);} }, [user]);
@@ -108,18 +129,13 @@ export default function App() {
   if (loadingAuth) return <View style={{flex:1,justifyContent:'center',alignItems:'center',backgroundColor:theme.background}}><ActivityIndicator size="large" color={theme.primary}/></View>;
   if (!user) return <LoginScreen />;
 
-  const BackgroundWrapper = ({ children }) => {
-    if (customBg) return <View style={{ flex: 1 }}><ImageBackground source={{ uri: customBg }} style={{position:'absolute', width:'100%', height:'100%'}} resizeMode="cover" /><View style={{ flex: 1, backgroundColor: isDarkMode ? 'rgba(0,0,0,0.7)' : 'rgba(255,255,255,0.4)' }}>{children}</View></View>;
-    if (isDarkMode) return <View style={[styles.background, { backgroundColor: theme.background }]}>{children}</View>;
-    return <LinearGradient colors={getThemeColor()} style={styles.background}>{children}</LinearGradient>;
-  };
-  const ImageBackground = require('react-native').ImageBackground;
-
   return (
     <SafeAreaProvider>
       <SafeAreaContext style={[styles.container, { backgroundColor: theme.background }]} edges={['top', 'left', 'right']}>
         <StatusBar barStyle={theme.statusText} backgroundColor="transparent" translucent />
-        <BackgroundWrapper>
+        
+        {/* Layout Estável */}
+        <MainLayout customBg={customBg} theme={theme} isDarkMode={isDarkMode} getThemeColor={getThemeColor}>
           <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={{ flex: 1 }}>
             <View style={{ flex: 1 }}>
               
@@ -131,8 +147,15 @@ export default function App() {
                 profileImage={headerProfileImage} 
               />
 
+              {/* MENU INFERIOR (SCROLLVIEW) */}
               <View style={[styles.tabContainer, { backgroundColor: customBg ? 'rgba(255,255,255,0.8)' : theme.tabBar, borderBottomColor: theme.border }]}>
-                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{flexGrow: 1}}>
+                <ScrollView 
+                  horizontal 
+                  showsHorizontalScrollIndicator={false} 
+                  contentContainerStyle={{flexGrow: 1}}
+                  // AQUI É O PULO DO GATO: maintainVisibleContentPosition ajuda a manter a posição
+                  maintainVisibleContentPosition={{ minIndexForVisible: 0 }}
+                >
                   {[{id:'home', icon:'home', label:'Início'},{id:'profile', icon:'user', label:'Perfil'},{id:'meals', icon:'coffee', label:'Refeições'},{id:'challenges', icon:'award', label:'Desafios'},{id:'community', icon:'users', label:'Social'},{id:'water', icon:'droplet', label:'Água'},{id:'fasting', icon:'clock', label:'Jejum'},{id:'gallery', icon:'camera', label:'Galeria'}].map(tab => (
                     <TouchableOpacity key={tab.id} onPress={() => setCurrentTab(tab.id)} style={[styles.tabBtn, currentTab === tab.id && { backgroundColor: theme.primary + '20' }]}>
                       <Feather name={tab.icon} size={18} color={currentTab === tab.id ? theme.primary : theme.tabIcon} />
@@ -154,7 +177,8 @@ export default function App() {
               </View>
             </View>
           </KeyboardAvoidingView>
-        </BackgroundWrapper>
+        </MainLayout>
+
         {xpNotification.visible && (<Animated.View style={[styles.xpToast, { opacity: fadeAnim, transform: [{ translateY: slideAnim }], backgroundColor: theme.card, shadowColor: theme.text }]}><View style={styles.xpBadge}><Feather name="star" size={16} color="#fff" /></View><Text style={[styles.xpText, {color: theme.text}]}>+{xpNotification.amount} XP</Text>{xpNotification.message ? <Text style={[styles.xpSubText, {color: theme.textSub}]}>| {xpNotification.message}</Text> : null}</Animated.View>)}
         <Modal visible={showMotivation} transparent={true} animationType="fade"><View style={styles.modalOverlay}><View style={[styles.modalContent, { backgroundColor: theme.card }]}><View style={styles.iconCircle}><Feather name="sun" size={32} color="#f59e0b" /></View><Text style={[styles.modalTitle, { color: theme.textSub }]}>Mensagem do Dia</Text><Text style={[styles.modalText, { color: theme.text }]}>"{todaysMessage}"</Text><TouchableOpacity style={[styles.modalButton, { backgroundColor: theme.primary }]} onPress={() => setShowMotivation(false)}><Text style={styles.modalButtonText}>VAMOS LÁ! 💪</Text></TouchableOpacity></View></View></Modal>
       </SafeAreaContext>

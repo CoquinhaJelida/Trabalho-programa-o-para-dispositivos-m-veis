@@ -1,27 +1,31 @@
 export const lightTheme = {
-  background: '#f3f4f6',
-  card: '#ffffff',
-  text: '#1f2937',
-  textSub: '#6b7280',
-  primary: '#16a34a',
-  inputBg: '#ffffff',
-  border: '#e5e7eb',
-  tabBar: '#ffffff',
+  background: '#f3f4f6', // Fundo da tela
+  card: '#ffffff',       // Fundo dos cards
+  text: '#1f2937',       // Texto principal
+  textSub: '#6b7280',    // Texto secundário
+  primary: '#16a34a',    // Verde destaque
+  
+  // --- CORREÇÃO AQUI ---
+  inputBg: '#e5e7eb',    // Antes era #ffffff (invisível). Agora é Cinza (visível).
+  // ---------------------
+
+  border: '#e5e7eb',     // Bordas
+  tabBar: '#ffffff',     // Menu
   tabIcon: '#9ca3af',
   tabIconActive: '#16a34a',
   statusText: 'dark-content'
 };
 
 export const darkTheme = {
-  background: '#111827', // Fundozão (Cool Gray 900)
-  card: '#1f2937',       // Cartões (Cool Gray 800)
-  text: '#f9fafb',       // Texto Principal (Cool Gray 50)
-  textSub: '#9ca3af',    // Texto Secundário (Cool Gray 400)
-  primary: '#22c55e',    // Verde Neon (mais legível no escuro)
-  inputBg: '#374151',    // Inputs (Cool Gray 700)
-  border: '#374151',     // Bordas sutis
-  tabBar: '#1f2937',     // Menu igual aos cartões
-  tabIcon: '#6b7280',    // Ícone apagado
-  tabIconActive: '#4ade80', // Ícone aceso
+  background: '#111827',
+  card: '#1f2937',
+  text: '#f9fafb',
+  textSub: '#9ca3af',
+  primary: '#22c55e',
+  inputBg: '#374151',    // Cinza escuro (já estava bom)
+  border: '#374151',
+  tabBar: '#1f2937',
+  tabIcon: '#6b7280',
+  tabIconActive: '#4ade80',
   statusText: 'light-content'
 };
