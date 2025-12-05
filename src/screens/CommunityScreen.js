@@ -8,18 +8,20 @@ import * as ImagePicker from 'expo-image-picker';
 import { auth } from '../config/firebase';
 import { 
   getAllUsers, getPublicUserProfile, getChatRooms, createChatRoom, 
-  joinCommunity, checkMembership, updateChatRoom, deleteChatRoom, banUserFromRoom, getRoomMembers, sendMessageToRoom, subscribeToRoomMessages 
+  joinCommunity, checkMembership, updateChatRoom, deleteChatRoom, banUserFromRoom, getRoomMembers, sendMessageToRoom, subscribeToRoomMessages, deleteMessageFromRoom
 } from '../services/db';
+
+const SUPER_ADMIN_EMAIL = "seu_email_aqui@gmail.com";
 
 export default function CommunityScreen({ theme }) {
   const [activeTab, setActiveTab] = useState('chat'); 
   const [currentRoom, setCurrentRoom] = useState(null); 
   const [inputText, setInputText] = useState('');
-  
-  // MUDANÇA: Messages agora é um array da sala atual, vindo do Firebase
   const [roomMessages, setRoomMessages] = useState([]); 
   
+  // ADMIN STATES
   const [isAdmin, setIsAdmin] = useState(false);
+  const [isSuperAdmin, setIsSuperAdmin] = useState(false);
   const [adminModalVisible, setAdminModalVisible] = useState(false);
   const [editRoomName, setEditRoomName] = useState('');
   const [editRoomDesc, setEditRoomDesc] = useState('');
@@ -40,34 +42,28 @@ export default function CommunityScreen({ theme }) {
   const [visitingUser, setVisitingUser] = useState(null);
   const flatListRef = useRef(null);
 
-  useEffect(() => {
-    if (activeTab === 'chat') loadRooms();
-  }, [activeTab]);
+  // CARREGAMENTOS
+  useEffect(() => { if (activeTab === 'chat' && !currentRoom) loadRooms(); }, [activeTab, currentRoom]);
+  useEffect(() => { if (activeTab === 'members' && !currentRoom) { setLoadingMembers(true); getAllUsers((users) => { setMembers(users); setLoadingMembers(false); }); } }, [activeTab, currentRoom]);
 
-  // --- LÓGICA DE OUVINTE (LISTENER) DO CHAT ---
+  // LISTENER E ADMIN
   useEffect(() => {
     let unsubscribe;
     if (currentRoom) {
-      const isOwner = auth.currentUser?.uid === currentRoom.createdBy;
-      setIsAdmin(isOwner);
+      const currentUser = auth.currentUser;
+      const isOwner = currentUser?.uid === currentRoom.createdBy;
+      const superAdmin = currentUser?.email === SUPER_ADMIN_EMAIL;
+      setIsAdmin(isOwner || superAdmin);
+      setIsSuperAdmin(superAdmin);
       setEditRoomName(currentRoom.name);
       setEditRoomDesc(currentRoom.description);
       setEditRoomPhoto(currentRoom.photo || null);
       checkMembership(currentRoom.id, setHasJoined);
-      if (isOwner && adminModalVisible) loadRoomMembers();
-
-      // LIGA O OUVINTE!
-      unsubscribe = subscribeToRoomMessages(currentRoom.id, (newMsgs) => {
-        setRoomMessages(newMsgs);
-      });
+      if ((isOwner || superAdmin) && adminModalVisible) loadRoomMembers();
+      unsubscribe = subscribeToRoomMessages(currentRoom.id, (newMsgs) => setRoomMessages(newMsgs));
     }
-    
-    // Desliga quando sair da sala
-    return () => {
-      if (unsubscribe) unsubscribe();
-    };
+    return () => { if (unsubscribe) unsubscribe(); };
   }, [currentRoom, adminModalVisible]);
-  // --------------------------------------------
 
   const loadRoomMembers = () => { getRoomMembers(currentRoom.id, (list) => setRoomMembersList(list)); };
   const loadRooms = () => { setLoadingRooms(true); getChatRooms((rooms) => { if (rooms.length === 0) { setChatRooms([{ id: '1', name: 'Geral', description: 'Bem-vindo', members: 1, color: ['#f59e0b', '#d97706'] }]); } else { setChatRooms(rooms); } setLoadingRooms(false); }); };
@@ -77,122 +73,72 @@ export default function CommunityScreen({ theme }) {
   const handlePickRoomPhoto = async () => { const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, quality: 0.5, aspect: [1, 1] }); if (!result.canceled) setEditRoomPhoto(result.assets[0].uri); };
   const handleDeleteRoom = () => { Alert.alert("Excluir Sala", "Tem certeza?", [{ text: "Cancelar", style: "cancel" }, { text: "Excluir", style: "destructive", onPress: () => { deleteChatRoom(currentRoom.id, () => { setAdminModalVisible(false); setCurrentRoom(null); loadRooms(); }); }}]); };
   const handleBanUser = (userId) => { Alert.alert("BANIR", "Deseja banir?", [{ text: "Cancelar", style: "cancel" }, { text: "BANIR", style: "destructive", onPress: () => { banUserFromRoom(currentRoom.id, userId, () => { Alert.alert("Banido", "Usuário removido."); loadRoomMembers(); }); }}]); };
-  
-  useEffect(() => { if (activeTab === 'members') { setLoadingMembers(true); getAllUsers((users) => { setMembers(users); setLoadingMembers(false); }); } }, [activeTab]);
-  const handleVisitProfile = (userId) => { setLoadingMembers(true); getPublicUserProfile(userId, (userData) => { setVisitingUser(userData); setLoadingMembers(false); setVisitModalVisible(true); }); };
-  
-  // --- ENVIO REAL ---
-  const handleSend = (text = null, image = null) => { 
-    const content = text || inputText; 
-    if (!content && !image) return; 
-    sendMessageToRoom(currentRoom.id, content, image); // Envia pro Firebase
-    setInputText(''); 
-  };
-
+  const handleVisitProfile = (userId) => { setVisitingUser(null); setVisitModalVisible(true); getPublicUserProfile(userId, (userData) => { setVisitingUser(userData); }); };
+  const handleSend = (text = null, image = null) => { const content = text || inputText; if (!content && !image) return; sendMessageToRoom(currentRoom.id, content, image); setInputText(''); };
   const handlePickImage = async () => { const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, quality: 0.5, aspect: [4, 3] }); if (!result.canceled) handleSend(null, result.assets[0].uri); };
+  const handleDeleteMessage = (msg) => { Alert.alert("Apagar", "Excluir?", [{ text: "Cancelar", style: "cancel" }, { text: "Apagar", style: "destructive", onPress: () => deleteMessageFromRoom(currentRoom.id, msg.id) }]); };
   const formatTime = (date) => date.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
   const filteredMembers = members.filter(m => m.name.toLowerCase().includes(searchText.toLowerCase()));
 
-  if (!currentRoom) {
-    return (
-      <View style={[styles.container, { backgroundColor: theme.background }]}>
-        <View style={[styles.header, { backgroundColor: theme.card, borderBottomColor: theme.border }]}>
-          <Text style={[styles.headerTitle, { color: theme.text }]}>Comunidade</Text>
-          <View style={styles.tabSwitch}>
-            <TouchableOpacity onPress={() => setActiveTab('chat')} style={[styles.tabSwitchBtn, activeTab==='chat' && {borderBottomWidth: 2, borderBottomColor: theme.primary}]}><Text style={[styles.tabSwitchText, {color: activeTab==='chat'?theme.primary:theme.textSub}]}>Salas</Text></TouchableOpacity>
-            <TouchableOpacity onPress={() => setActiveTab('members')} style={[styles.tabSwitchBtn, activeTab==='members' && {borderBottomWidth: 2, borderBottomColor: theme.primary}]}><Text style={[styles.tabSwitchText, {color: activeTab==='members'?theme.primary:theme.textSub}]}>Membros</Text></TouchableOpacity>
-          </View>
+  // --- COMPONENTES INTERNOS PARA ORGANIZAR O RENDER ---
+
+  const renderLobby = () => (
+    <>
+      <View style={[styles.header, { backgroundColor: theme.card, borderBottomColor: theme.border }]}>
+        <Text style={[styles.headerTitle, { color: theme.text }]}>Comunidade</Text>
+        <View style={styles.tabSwitch}>
+          <TouchableOpacity onPress={() => setActiveTab('chat')} style={[styles.tabSwitchBtn, activeTab==='chat' && {borderBottomWidth: 2, borderBottomColor: theme.primary}]}><Text style={[styles.tabSwitchText, {color: activeTab==='chat'?theme.primary:theme.textSub}]}>Salas</Text></TouchableOpacity>
+          <TouchableOpacity onPress={() => setActiveTab('members')} style={[styles.tabSwitchBtn, activeTab==='members' && {borderBottomWidth: 2, borderBottomColor: theme.primary}]}><Text style={[styles.tabSwitchText, {color: activeTab==='members'?theme.primary:theme.textSub}]}>Membros</Text></TouchableOpacity>
         </View>
-
-        {!currentRoom && activeTab === 'chat' && (
-          <View style={{flex: 1}}>
-            {loadingRooms ? <ActivityIndicator color={theme.primary} style={{marginTop:20}} /> : (
-              <FlatList
-                data={chatRooms}
-                keyExtractor={item => item.id}
-                contentContainerStyle={{ padding: 20 }}
-                ListEmptyComponent={<Text style={{textAlign:'center', color:theme.textSub}}>Nenhuma sala.</Text>}
-                renderItem={({ item }) => (
-                  <TouchableOpacity style={[styles.roomCard, { backgroundColor: theme.card }]} onPress={() => setCurrentRoom(item)}>
-                    {item.photo ? <Image source={{ uri: item.photo }} style={styles.roomIconImg} /> : <LinearGradient colors={item.color || ['#666','#444']} style={styles.roomIcon}><Feather name="users" size={24} color="#fff" /></LinearGradient>}
-                    <View style={{ flex: 1 }}>
-                      <Text style={[styles.roomName, { color: theme.text }]}>{item.name}</Text>
-                      <Text style={[styles.roomDesc, { color: theme.textSub }]}>{item.description}</Text>
-                      <Text style={[styles.roomMembers, { color: theme.primary }]}>{item.members} online</Text>
-                    </View>
-                    <Feather name="chevron-right" size={24} color={theme.tabIcon} />
-                  </TouchableOpacity>
-                )}
-              />
-            )}
-            <TouchableOpacity style={styles.fab} onPress={() => setIsCreatingRoom(true)}><Feather name="plus" size={24} color="#fff" /></TouchableOpacity>
-          </View>
-        )}
-
-        {!currentRoom && activeTab === 'members' && (
-          <View style={{ flex: 1 }}>
-            <View style={[styles.searchContainer, { backgroundColor: theme.card }]}>
-              <Feather name="search" size={20} color={theme.textSub} style={{marginRight: 10}} />
-              <TextInput style={[styles.searchInput, { color: theme.text }]} placeholder="Buscar..." placeholderTextColor={theme.textSub} value={searchText} onChangeText={setSearchText} />
-            </View>
-            {loadingMembers ? <ActivityIndicator size="large" color={theme.primary} style={{marginTop: 20}} /> : (
-              <FlatList
-                data={filteredMembers} keyExtractor={item => item.id} contentContainerStyle={{ padding: 20 }} ListEmptyComponent={<Text style={{textAlign:'center', color:theme.textSub, marginTop:20}}>Nenhum membro.</Text>}
-                renderItem={({ item }) => (
-                  <TouchableOpacity style={[styles.memberCard, { backgroundColor: theme.card }]} onPress={() => handleVisitProfile(item.id)}>
-                    {item.photo ? <Image source={{ uri: item.photo }} style={styles.memberAvatar} /> : <View style={[styles.memberAvatarPlaceholder, {backgroundColor: theme.inputBg}]}><Feather name="user" size={20} color={theme.textSub} /></View>}
-                    <View style={{flex: 1}}><Text style={[styles.memberName, { color: theme.text }]}>{item.name}</Text><Text style={[styles.memberLevel, { color: theme.primary }]}>Nível {item.level}</Text></View><Feather name="eye" size={20} color={theme.tabIcon} />
-                  </TouchableOpacity>
-                )}
-              />
-            )}
-          </View>
-        )}
-
-        <Modal visible={isCreatingRoom} transparent={true} animationType="slide">
-          <View style={styles.modalOverlay}>
-            <View style={[styles.modalContent, { backgroundColor: theme.card }]}>
-              <Text style={[styles.modalTitle, {color: theme.text}]}>Nova Comunidade</Text>
-              <TextInput style={[styles.modalInput, {backgroundColor: theme.inputBg, color: theme.text, borderColor: theme.border}]} placeholder="Nome da Sala" placeholderTextColor={theme.textSub} value={newRoomName} onChangeText={setNewRoomName} />
-              <TextInput style={[styles.modalInput, {backgroundColor: theme.inputBg, color: theme.text, borderColor: theme.border}]} placeholder="Descrição" placeholderTextColor={theme.textSub} value={newRoomDesc} onChangeText={setNewRoomDesc} />
-              <View style={styles.modalButtons}>
-                <TouchableOpacity onPress={() => setIsCreatingRoom(false)} style={[styles.btnCancel, {backgroundColor: theme.inputBg}]}><Text style={[styles.btnTextCancel, {color: theme.text}]}>Cancelar</Text></TouchableOpacity>
-                <TouchableOpacity onPress={handleCreateRoom} style={[styles.btnSave, {backgroundColor: theme.primary}]}><Text style={styles.btnTextSave}>Criar</Text></TouchableOpacity>
-              </View>
-            </View>
-          </View>
-        </Modal>
       </View>
-    );
-  }
 
-  return (
-    <View style={[styles.chatContainer, { backgroundColor: theme.background }]}>
+      {activeTab === 'chat' && (
+        <View style={{flex: 1}}>
+          {loadingRooms ? <ActivityIndicator color={theme.primary} style={{marginTop:20}} /> : (
+            <FlatList data={chatRooms} keyExtractor={item => item.id} contentContainerStyle={{ padding: 20 }} ListEmptyComponent={<Text style={{textAlign:'center', color:theme.textSub}}>Nenhuma sala.</Text>}
+              renderItem={({ item }) => (
+                <TouchableOpacity style={[styles.roomCard, { backgroundColor: theme.card }]} onPress={() => setCurrentRoom(item)}>
+                  {item.photo ? <Image source={{ uri: item.photo }} style={styles.roomIconImg} /> : <LinearGradient colors={item.color || ['#666','#444']} style={styles.roomIcon}><Feather name="users" size={24} color="#fff" /></LinearGradient>}
+                  <View style={{ flex: 1 }}><Text style={[styles.roomName, { color: theme.text }]}>{item.name}</Text><Text style={[styles.roomDesc, { color: theme.textSub }]}>{item.description}</Text><Text style={[styles.roomMembers, { color: theme.primary }]}>{item.members} online</Text></View>
+                  <Feather name="chevron-right" size={24} color={theme.tabIcon} />
+                </TouchableOpacity>
+              )}
+            />
+          )}
+          <TouchableOpacity style={styles.fab} onPress={() => setIsCreatingRoom(true)}><Feather name="plus" size={24} color="#fff" /></TouchableOpacity>
+        </View>
+      )}
+
+      {activeTab === 'members' && (
+        <View style={{ flex: 1 }}>
+          <View style={[styles.searchContainer, { backgroundColor: theme.card }]}>
+            <Feather name="search" size={20} color={theme.textSub} style={{marginRight: 10}} />
+            <TextInput style={[styles.searchInput, { color: theme.text }]} placeholder="Buscar membro..." placeholderTextColor={theme.textSub} value={searchText} onChangeText={setSearchText} />
+          </View>
+          {loadingMembers ? <ActivityIndicator size="large" color={theme.primary} style={{marginTop: 20}} /> : (
+            <FlatList data={filteredMembers} keyExtractor={item => item.id} contentContainerStyle={{ padding: 20 }} ListEmptyComponent={<Text style={{textAlign:'center', color:theme.textSub, marginTop:20}}>Nenhum membro.</Text>}
+              renderItem={({ item }) => (
+                <TouchableOpacity style={[styles.memberCard, { backgroundColor: theme.card }]} onPress={() => handleVisitProfile(item.id)}>
+                  {item.photo ? <Image source={{ uri: item.photo }} style={styles.memberAvatar} /> : <View style={[styles.memberAvatarPlaceholder, {backgroundColor: theme.inputBg}]}><Feather name="user" size={20} color={theme.textSub} /></View>}
+                  <View style={{flex: 1, marginLeft: 12}}><Text style={[styles.memberName, { color: theme.text }]}>{item.name}</Text><Text style={[styles.memberLevel, { color: theme.primary }]}>Nível {item.level}</Text></View>
+                  <Feather name="eye" size={20} color={theme.tabIcon} />
+                </TouchableOpacity>
+              )}
+            />
+          )}
+        </View>
+      )}
+    </>
+  );
+
+  const renderChat = () => (
+    <>
       {currentRoom.photo ? (
         <View style={styles.chatHeaderImageContainer}><Image source={{ uri: currentRoom.photo }} style={styles.chatHeaderImage} /><View style={styles.chatHeaderOverlay}><TouchableOpacity onPress={() => setCurrentRoom(null)} style={styles.backBtn}><Feather name="arrow-left" size={24} color="#fff" /></TouchableOpacity><View style={{flex:1}}><Text style={styles.chatTitle}>{currentRoom.name}</Text><Text style={styles.chatSub}>{currentRoom.members} membros</Text></View>{isAdmin && (<TouchableOpacity onPress={() => setAdminModalVisible(true)}><Feather name="settings" size={24} color="#fff" /></TouchableOpacity>)}</View></View>
       ) : (
         <LinearGradient colors={currentRoom.color || ['#666','#444']} style={styles.chatHeader}><TouchableOpacity onPress={() => setCurrentRoom(null)} style={styles.backBtn}><Feather name="arrow-left" size={24} color="#fff" /></TouchableOpacity><View style={{flex: 1}}><Text style={styles.chatTitle}>{currentRoom.name}</Text><Text style={styles.chatSub}>{currentRoom.members} membros</Text></View>{isAdmin && (<TouchableOpacity onPress={() => setAdminModalVisible(true)}><Feather name="settings" size={24} color="#fff" /></TouchableOpacity>)}</LinearGradient>
       )}
 
-      <Modal visible={adminModalVisible} transparent={true} animationType="fade">
-        <View style={styles.modalOverlay}>
-          <View style={[styles.modalContent, { backgroundColor: theme.card, height: '75%' }]}>
-            <ScrollView showsVerticalScrollIndicator={false}>
-              <Text style={[styles.modalTitle, {color: theme.text}]}>Administração</Text>
-              <TouchableOpacity onPress={handlePickRoomPhoto} style={{alignSelf:'center', marginBottom:15}}>{editRoomPhoto ? <Image source={{uri: editRoomPhoto}} style={styles.roomEditThumb} /> : <View style={[styles.roomEditPlaceholder, {borderColor: theme.textSub}]}><Feather name="camera" size={24} color={theme.textSub}/><Text style={{color:theme.textSub, fontSize:10}}>Alterar Foto</Text></View>}</TouchableOpacity>
-              <Text style={[styles.label, {color: theme.textSub}]}>Nome da Sala</Text><TextInput style={[styles.modalInput, {backgroundColor: theme.inputBg, color: theme.text, borderColor: theme.border}]} value={editRoomName} onChangeText={setEditRoomName} />
-              <Text style={[styles.label, {color: theme.textSub}]}>Descrição</Text><TextInput style={[styles.modalInput, {backgroundColor: theme.inputBg, color: theme.text, borderColor: theme.border}]} value={editRoomDesc} onChangeText={setEditRoomDesc} />
-              <TouchableOpacity style={[styles.btnSave, {backgroundColor: theme.primary, marginBottom: 20}]} onPress={handleUpdateRoom}><Text style={styles.btnTextSave}>Salvar Alterações</Text></TouchableOpacity>
-              <Text style={[styles.modalTitle, {color: theme.text, fontSize: 16, marginTop: 10}]}>Membros da Sala</Text>
-              {roomMembersList.map(member => (<View key={member.id} style={[styles.adminMemberRow, {borderBottomColor: theme.border}]}><View style={{flexDirection:'row', alignItems:'center'}}>{member.photo ? <Image source={{ uri: member.photo }} style={[styles.memberAvatar, {width:30, height:30, marginRight:10}]} /> : <View style={[styles.memberAvatarPlaceholder, {width:30, height:30, backgroundColor: theme.inputBg, marginRight:10}]}><Feather name="user" size={16} color={theme.textSub} /></View>}<Text style={[styles.adminMemberName, {color: theme.text}]}>{member.name}</Text></View>{member.id === currentRoom.createdBy ? <View style={styles.tagAdmin}><Text style={styles.tagText}>👑 Admin</Text></View> : <View style={{flexDirection:'row', alignItems:'center'}}><View style={[styles.tagMember, {marginRight:10}]}><Text style={[styles.tagText, {color:'#666'}]}>👤 Membro</Text></View><TouchableOpacity onPress={() => handleBanUser(member.id)} style={styles.tagBan}><Feather name="trash-2" size={14} color="#fff" /></TouchableOpacity></View>}</View>))}
-              <TouchableOpacity style={[styles.btnSave, {backgroundColor: '#ef4444', marginTop: 30}]} onPress={handleDeleteRoom}><Text style={styles.btnTextSave}>Excluir Sala Permanentemente</Text></TouchableOpacity>
-            </ScrollView>
-            <TouchableOpacity style={{padding: 15, alignSelf: 'center'}} onPress={() => setAdminModalVisible(false)}><Text style={{color: theme.textSub}}>Fechar</Text></TouchableOpacity>
-          </View>
-        </View>
-      </Modal>
-
-      {/* LISTA DE MENSAGENS EM TEMPO REAL */}
       <FlatList ref={flatListRef} data={roomMessages} keyExtractor={item => item.id} inverted contentContainerStyle={{ padding: 15 }} renderItem={({ item }) => (
         <View style={[styles.msgRow, item.isMe ? styles.msgRowMe : styles.msgRowOther]}>
           {!item.isMe && <View style={[styles.avatar, {backgroundColor: theme.border}]}><Feather name="user" size={16} color={theme.textSub} /></View>}
@@ -202,6 +148,7 @@ export default function CommunityScreen({ theme }) {
             {item.text ? <Text style={[styles.msgText, item.isMe ? styles.textMe : { color: theme.text }]}>{item.text}</Text> : null}
             <Text style={[styles.msgTime, item.isMe ? {color: 'rgba(255,255,255,0.7)'} : {color: theme.textSub}]}>{formatTime(item.timestamp)}</Text>
           </View>
+          {(item.isMe || isSuperAdmin) && (<TouchableOpacity onPress={() => handleDeleteMessage(item)} style={{justifyContent:'center', paddingHorizontal: 5}}><Feather name="trash-2" size={14} color="#ef4444" /></TouchableOpacity>)}
         </View>
       )} />
       
@@ -216,8 +163,69 @@ export default function CommunityScreen({ theme }) {
           <TouchableOpacity style={[styles.joinBtn, {backgroundColor: currentRoom.color?.[0] || theme.primary}]} onPress={handleJoinRoom}><Text style={styles.joinBtnText}>ENTRAR NA COMUNIDADE</Text><Feather name="log-in" size={20} color="#fff" style={{marginLeft: 10}} /></TouchableOpacity>
         )}
       </KeyboardAvoidingView>
+    </>
+  );
 
-      <Modal visible={visitModalVisible} transparent={true} animationType="slide"><View style={styles.modalOverlay}><View style={[styles.modalContent, { backgroundColor: theme.card }]}><View style={styles.modalHeader}><Text style={[styles.modalTitle, {color: theme.text}]}>Perfil do Membro</Text><TouchableOpacity onPress={() => setVisitModalVisible(false)}><Feather name="x" size={24} color={theme.text} /></TouchableOpacity></View>{visitingUser ? (<ScrollView contentContainerStyle={{alignItems: 'center'}}>{visitingUser.photo ? <Image source={{ uri: visitingUser.photo }} style={styles.visitAvatar} /> : <View style={[styles.visitAvatarPlaceholder, {backgroundColor: theme.inputBg}]}><Feather name="user" size={40} color={theme.textSub} /></View>}<Text style={[styles.visitName, {color: theme.text}]}>{visitingUser.name}</Text><View style={[styles.visitBadge, {backgroundColor: theme.primary}]}><Text style={styles.visitLevel}>Nível {visitingUser.level}</Text></View><Text style={[styles.visitObj, {color: theme.textSub}]}>Objetivo: {visitingUser.objective === 'lose' ? 'Secar' : visitingUser.objective === 'gain' ? 'Crescer' : 'Manter'}</Text><View style={styles.statsGrid}><View style={[styles.statBox, {backgroundColor: theme.inputBg}]}><Text style={[styles.statVal, {color: theme.primary}]}>{visitingUser.stats?.mealsLogged || 0}</Text><Text style={[styles.statLbl, {color: theme.textSub}]}>Refeições</Text></View><View style={[styles.statBox, {backgroundColor: theme.inputBg}]}><Text style={[styles.statVal, {color: theme.primary}]}>{visitingUser.stats?.fastsCompleted || 0}</Text><Text style={[styles.statLbl, {color: theme.textSub}]}>Jejuns</Text></View><View style={[styles.statBox, {backgroundColor: theme.inputBg}]}><Text style={[styles.statVal, {color: theme.primary}]}>{visitingUser.stats?.xp || 0}</Text><Text style={[styles.statLbl, {color: theme.textSub}]}>XP Total</Text></View></View></ScrollView>) : <ActivityIndicator color={theme.primary} />}</View></View></Modal>
+  // --- RETURN PRINCIPAL (AGORA UNIFICADO) ---
+  return (
+    <View style={[styles.container, { backgroundColor: theme.background }]}>
+      
+      {currentRoom ? renderChat() : renderLobby()}
+
+      {/* MODAIS GLOBAIS (AGORA DISPONÍVEIS EM TODAS AS TELAS) */}
+      
+      {/* 1. Modal Criar */}
+      <Modal visible={isCreatingRoom} transparent={true} animationType="slide">
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalContent, { backgroundColor: theme.card }]}>
+            <Text style={[styles.modalTitle, {color: theme.text}]}>Nova Comunidade</Text>
+            <TextInput style={[styles.modalInput, {backgroundColor: theme.inputBg, color: theme.text, borderColor: theme.border}]} placeholder="Nome da Sala" placeholderTextColor={theme.textSub} value={newRoomName} onChangeText={setNewRoomName} />
+            <TextInput style={[styles.modalInput, {backgroundColor: theme.inputBg, color: theme.text, borderColor: theme.border}]} placeholder="Descrição" placeholderTextColor={theme.textSub} value={newRoomDesc} onChangeText={setNewRoomDesc} />
+            <View style={styles.modalButtons}>
+              <TouchableOpacity onPress={() => setIsCreatingRoom(false)} style={[styles.btnCancel, {backgroundColor: theme.inputBg}]}><Text style={[styles.btnTextCancel, {color: theme.text}]}>Cancelar</Text></TouchableOpacity>
+              <TouchableOpacity onPress={handleCreateRoom} style={[styles.btnSave, {backgroundColor: theme.primary}]}><Text style={styles.btnTextSave}>Criar</Text></TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* 2. Modal Admin */}
+      <Modal visible={adminModalVisible} transparent={true} animationType="fade">
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalContent, { backgroundColor: theme.card, height: '75%' }]}>
+            <ScrollView showsVerticalScrollIndicator={false}>
+              <Text style={[styles.modalTitle, {color: theme.text}]}>Administração</Text>
+              <TouchableOpacity onPress={handlePickRoomPhoto} style={{alignSelf:'center', marginBottom:15}}>{editRoomPhoto ? <Image source={{uri: editRoomPhoto}} style={styles.roomEditThumb} /> : <View style={[styles.roomEditPlaceholder, {borderColor: theme.textSub}]}><Feather name="camera" size={24} color={theme.textSub}/><Text style={{color:theme.textSub, fontSize:10}}>Alterar Foto</Text></View>}</TouchableOpacity>
+              <Text style={[styles.label, {color: theme.textSub}]}>Nome da Sala</Text><TextInput style={[styles.modalInput, {backgroundColor: theme.inputBg, color: theme.text, borderColor: theme.border}]} value={editRoomName} onChangeText={setEditRoomName} />
+              <Text style={[styles.label, {color: theme.textSub}]}>Descrição</Text><TextInput style={[styles.modalInput, {backgroundColor: theme.inputBg, color: theme.text, borderColor: theme.border}]} value={editRoomDesc} onChangeText={setEditRoomDesc} />
+              <TouchableOpacity style={[styles.btnSave, {backgroundColor: theme.primary, marginBottom: 20}]} onPress={handleUpdateRoom}><Text style={styles.btnTextSave}>Salvar Alterações</Text></TouchableOpacity>
+              <Text style={[styles.modalTitle, {color: theme.text, fontSize: 16, marginTop: 10}]}>Membros da Sala</Text>
+              {roomMembersList.map(member => (<View key={member.id} style={[styles.adminMemberRow, {borderBottomColor: theme.border}]}><View style={{flexDirection:'row', alignItems:'center'}}>{member.photo ? <Image source={{ uri: member.photo }} style={[styles.memberAvatar, {width:30, height:30, marginRight:10}]} /> : <View style={[styles.memberAvatarPlaceholder, {width:30, height:30, backgroundColor: theme.inputBg, marginRight:10}]}><Feather name="user" size={16} color={theme.textSub} /></View>}<Text style={[styles.adminMemberName, {color: theme.text}]}>{member.name}</Text></View>{member.id === currentRoom?.createdBy ? <View style={styles.tagAdmin}><Text style={styles.tagText}>👑 Admin</Text></View> : <View style={{flexDirection:'row', alignItems:'center'}}><View style={[styles.tagMember, {marginRight:10}]}><Text style={[styles.tagText, {color:'#666'}]}>👤 Membro</Text></View><TouchableOpacity onPress={() => handleBanUser(member.id)} style={styles.tagBan}><Feather name="trash-2" size={14} color="#fff" /></TouchableOpacity></View>}</View>))}
+              <TouchableOpacity style={[styles.btnSave, {backgroundColor: '#ef4444', marginTop: 30}]} onPress={handleDeleteRoom}><Text style={styles.btnTextSave}>Excluir Sala Permanentemente</Text></TouchableOpacity>
+            </ScrollView>
+            <TouchableOpacity style={{padding: 15, alignSelf: 'center'}} onPress={() => setAdminModalVisible(false)}><Text style={{color: theme.textSub}}>Fechar</Text></TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      {/* 3. Modal Visita (AGORA GLOBAL) */}
+      <Modal visible={visitModalVisible} transparent={true} animationType="slide">
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalContent, { backgroundColor: theme.card }]}>
+            <View style={styles.modalHeader}><Text style={[styles.modalTitle, {color: theme.text}]}>Perfil do Membro</Text><TouchableOpacity onPress={() => setVisitModalVisible(false)}><Feather name="x" size={24} color={theme.text} /></TouchableOpacity></View>
+            {visitingUser ? (
+              <ScrollView contentContainerStyle={{alignItems: 'center'}}>
+                {visitingUser.photo ? <Image source={{ uri: visitingUser.photo }} style={styles.visitAvatar} /> : <View style={[styles.visitAvatarPlaceholder, {backgroundColor: theme.inputBg}]}><Feather name="user" size={40} color={theme.textSub} /></View>}
+                <Text style={[styles.visitName, {color: theme.text}]}>{visitingUser.name}</Text>
+                <View style={[styles.visitBadge, {backgroundColor: theme.primary}]}><Text style={styles.visitLevel}>Nível {visitingUser.level}</Text></View>
+                <Text style={[styles.visitObj, {color: theme.textSub}]}>Objetivo: {visitingUser.objective === 'lose' ? 'Secar' : visitingUser.objective === 'gain' ? 'Crescer' : 'Manter'}</Text>
+                <View style={styles.statsGrid}><View style={[styles.statBox, {backgroundColor: theme.inputBg}]}><Text style={[styles.statVal, {color: theme.primary}]}>{visitingUser.stats?.mealsLogged || 0}</Text><Text style={[styles.statLbl, {color: theme.textSub}]}>Refeições</Text></View><View style={[styles.statBox, {backgroundColor: theme.inputBg}]}><Text style={[styles.statVal, {color: theme.primary}]}>{visitingUser.stats?.fastsCompleted || 0}</Text><Text style={[styles.statLbl, {color: theme.textSub}]}>Jejuns</Text></View><View style={[styles.statBox, {backgroundColor: theme.inputBg}]}><Text style={[styles.statVal, {color: theme.primary}]}>{visitingUser.stats?.xp || 0}</Text><Text style={[styles.statLbl, {color: theme.textSub}]}>XP Total</Text></View></View>
+              </ScrollView>
+            ) : <ActivityIndicator color={theme.primary} />}
+          </View>
+        </View>
+      </Modal>
+
     </View>
   );
 }

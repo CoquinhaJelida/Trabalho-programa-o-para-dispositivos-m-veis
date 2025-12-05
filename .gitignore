@@ -41,4 +41,6 @@ yarn-error.*
 /android
 
 # Segurança - Firebase
-src/config/firebase.js
+#src/config/firebase.js
+
+.env
